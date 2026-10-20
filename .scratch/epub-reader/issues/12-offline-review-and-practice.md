@@ -33,3 +33,11 @@ Review uses captured context on the left and definitions on the right, stacking 
 Practice shows each saved word for one word interval at the chosen WPM, reveals captured context and definitions on request, and offers Comfortable, Difficult and Skip. Session counts are temporary in this draft; existing word classifications remain unchanged. No adaptive scheduler or comprehension claim is included.
 
 Manual import checks covered multiple senses, case handling, lemma lookup, missing/uninstalled states and failed-import preservation. Chromium verified real `retching` and `whorls` entries, missing-word feedback, responsive layout, and practice reveal/feedback/skip/exit. Dictionary browsing made no external requests while external network routes were blocked, and no JavaScript exceptions occurred. Tests used separate capture storage with no Jev requests.
+
+## Table revision after user review
+
+The user rejected the crowded full-candidate interface. The prototype now presents one Jev suggestion per tap in a table, with the containing sentence and exact source word in bold. A / Unfamiliar, B / Know it but slow to recognize, and C / Dismiss remain inline. See definition expands the row and hides those choices; collapsing restores them. Full sentence text is reconstructed locally; the model's capture context remains limited to encountered words.
+
+Nearby taps use a five-second initial threshold plus overlapping source-word coordinates. Each tap chooses its highest-ranked word not already nominated by another nearby overlapping tap. Unique tap identifiers prevent identical windows from collapsing and allow rapid taps while a save is in flight. Raw candidates remain internal ranking evidence, not review rows. Existing saved choices remain available in practice.
+
+Verified with synthetic scoring and separate storage: repeated same-window taps, idempotent retransmission, top-two selection, time separation, sentence coordinates, preserved feedback and restart. Chromium verified the table, bold words, expansion, hidden choices, mobile layout and two rapid taps with delayed network responses. No model calls were made during verification. Implementation, server changes and documentation were committed together on `prototype/vocabulary-capture`; this supersedes the earlier two-column full-candidate interface.
