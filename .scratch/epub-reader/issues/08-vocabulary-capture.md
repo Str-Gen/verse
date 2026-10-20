@@ -20,7 +20,7 @@ Consult typesafe-ai, codebase-design, and prototype. Read current TypeSafe API, 
 
 Branch: `prototype/vocabulary-capture`
 
-Commit: `4e78222eb4927416e9dbbfa9407c125906d7dd03`
+Latest commit: `b16d4666cd6789ec2c2d4b22903f5b28ffcb2d9a`
 
 Worktree: `/home/strgenix/speedreading-prototypes/vocabulary-capture`
 
@@ -43,3 +43,7 @@ Offline module checks verified time selection excluding pauses, unread-tail excl
 The user's backend runs on localhost with an initially empty private database at `test-data/local/vocabulary.sqlite`; separate temporary databases held all test captures. The live experiment was opened in the browser.
 
 Still open: user preference for capture window; whether the actual distracting word ranks near the top in real reading; review presentation; the depth of per-reader feedback; and whether this module interface remains sufficient for the eventual native core. Definitions and training are covered by the separate review-scope ticket. Keep this ticket claimed until the user has tried the feature.
+
+2026-10-20, first real reading feedback: both user captures completed, each with 16 candidates and 16 Jev judgments. The top-ranked words were `retching` and `whorls`; the user confirmed these were the intended words and said the feature works well. They know what retching means, while whorls is a word they never use. This supports the recognition-familiarity framing rather than assuming unknown meanings. Two successful captures are promising examples, not a measured general accuracy rate.
+
+The user also requested an explicit progress counter. Reader version 4 displays `Chapter N · X / Y words` and drives the progress bar from the same chapter word count. Split hyphenated compounds count once. The generated fixture has chapter totals of 1,101, 5,286, and 2,330 words. Verified chapter transitions reset the current count, the four pieces of `eight-hundred-year-old` all use word index 374, and the served page renders the new label while retaining capture controls. This reader-only change leaves the Jev module unchanged.
