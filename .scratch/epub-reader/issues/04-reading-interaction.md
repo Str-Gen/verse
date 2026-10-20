@@ -21,7 +21,7 @@ With the user, explore conventional-view entry, shortcut activation, word or phr
 
 Branch: `prototype/reading-interaction`
 
-Latest commit: `6dd12debc92c3a00da52ba738f0bad64678cd6ba`
+Latest commit: `df3a5ee8295f567a7bcc1afcaa291fc6a428ecee`
 
 Original comparison commit: `acab9aa3fbc0a28374f860ed7ddd76f3297eb388`
 
@@ -32,7 +32,8 @@ Assets:
 - [Prototype guide](/home/strgenix/speedreading-prototypes/reading-interaction/prototypes/reading-interaction/README.md)
 - [Shareable demo with original sample text](/home/strgenix/speedreading-prototypes/reading-interaction/prototypes/reading-interaction/reading-interaction.prototype.html)
 - [Private demo using the default EPUB](/home/strgenix/speedreading/omawrite/test-data/local/reading-interaction.html). This generated file contains book text and is ignored by Git.
-- [Revised private demo with reference pacing](/home/strgenix/speedreading/omawrite/test-data/local/reading-interaction-v2.html). This is the latest version; the first version remains available for comparison.
+- [Private demo with reference pacing](/home/strgenix/speedreading/omawrite/test-data/local/reading-interaction-v2.html).
+- [Latest private demo with smaller compound pieces](/home/strgenix/speedreading/omawrite/test-data/local/reading-interaction-v3.html). Earlier versions remain available for comparison.
 
 ## Comments
 
@@ -49,3 +50,7 @@ Inspected `/home/strgenix/Videos/screenrecording-2026-10-20_20-19-41.mp4` and co
 Revision 2 adds a stationary bracket-shaped focus guide, 350 wpm default, local Noto Serif at medium weight with alternatives, separate clause/sentence holds plus extra paragraph time, and em-dash piece splitting. Long words retain the ordinary hold. Pace now includes pauses over a section; this interpretation of the control remains a proposal. Animation-frame deadlines keep changes aligned to display refresh without a catch-up burst after interruptions.
 
 The revised private demo opened in the user's browser. The browser check exercised transitions and observed ordinary holds of 116–134 ms without JavaScript exceptions. Actual comfort and preference still require the user's response. Exact return versus sentence return, centered versus aligned words, and single-word versus phrase display remain open. Keep this ticket claimed.
+
+2026-10-20, further feedback: a large piece inside a parenthetical was too much to read at speed; an opening parenthesis can begin a sequence but must not group the entire aside into one presentation. Inspection found that parentheses already advanced word by word, but the first aside contained `eight-hundred-year-old` as a single unit. Treat this as the likely reported case, not confirmation of the user's exact stopping point.
+
+Revision 3 splits letter-to-letter hyphenated compounds while preserving conventional text and keeping parentheses attached to adjacent words. The browser displayed `eight-`, `hundred-`, `year-`, `old` separately and returned to the last displayed piece. All fixture paragraphs reconstructed exactly from pieces and gaps. The revised file was opened for the user; the ticket remains claimed for continued interaction feedback.
