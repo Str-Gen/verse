@@ -41,6 +41,19 @@ Worktree: `/home/strgenix/speedreading-prototypes/content-review`
 
 ## Comments
 
+2026-10-21, user choice: Skip decorations during playback and pause on substantive images. Look ahead through the book to help identify repeated or mirrored ornaments. Repetition or mirroring is evidence for classification, not proof that an image is decorative; the classifier and uncertain-image behavior still need validation.
+
+2026-10-21, confirmed position recovery: Reopening an unchanged EPUB restores the exact saved source position. If the reader replaces it with an edited edition and the exact position cannot be restored, offer a confidently and uniquely matched passage for confirmation. Otherwise offer the saved chapter's start, provided that chapter can be identified in the new edition. Do not silently select among repeated text matches or assume an old numeric section index identifies the same chapter. If neither passage nor chapter can be identified, preserve the old saved location and explain that the reader must choose a new location. This final no-match behavior is an implementation safeguard; the user explicitly accepted the matching-passage/chapter-start recovery policy.
+
+2026-10-21: Resumed rendering investigation before architecture selection at the user's request. Fresh in-memory synthetic EPUB probes against the current prototype confirmed:
+
+- `un<em>believ</em>able today` produces four playback words rather than two. The content model must join lexical words across inline formatting while retaining all contributing source spans. Deliberate compound display pieces remain a separate playback choice.
+- A paragraph styled with `display:none` is included in both normalized output and playback. The content contract needs one consistent visibility interpretation before producing either view; reader-controlled typography does not justify exposing publisher-hidden text.
+- Two navigation entries pointing to different fragments in one XHTML resource produce one chapter. Logical chapter ranges must be distinct from spine resources and preserve navigation fragments.
+- Unrelated books with the same package identifier receive the same application book ID despite different fingerprints. Local book identity must be independent of publisher identifiers, with revision identity tracked separately, so positions, speed and history cannot leak across books.
+
+These are observed prototype failures, not completed fixes. No private book text was emitted and no user state was changed. Subsequent user choices settled decorative-image skipping and changed-book position recovery above; the architecture ticket records Qt/QML with Rust preferred for Linux and a Tauri variant. Technical fixes and renderer-specific evidence remain open.
+
 2026-10-20: Built a disposable Python EPUB normalizer and browser study with reader-controlled typography, basic CSS-derived emphasis, chapter navigation, image/unsupported-content pauses, semantic footnote playback, local EPUB import, and per-book source-linked positions. No production toolkit or parser choice is implied. Imported books remain in ignored local storage; the committed sampler uses original synthetic text and imagery.
 
 Verified all 189,147 extracted word pieces from the supplied EPUB against original XML document/node/offset/length locations. The extraction produced 84 spine sections, 85 image occurrences, 1,010 italic spans, and 14 bold spans. These counts describe this book only. Browser checks exercised default note skipping, automatic note return, interruptions, exact split-compound restoration, book switching, stopped restart, and an invalid upload retaining the active book without page JavaScript exceptions. Changed fingerprints produce an explicit chapter-start fallback.

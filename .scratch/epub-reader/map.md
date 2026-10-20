@@ -13,8 +13,8 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 - Consult wayfinder, grilling, and domain-modeling for decision sessions; research for research tickets; prototype for interaction experiments.
 - User-confirmed requirements: local DRM-free EPUBs; remember reading position; fiction and nonfiction, primarily text; comfortable focus and good comprehension take priority over maximum speed.
 - Enter speedreading at the current passage with one shortcut; continue through paragraphs until stopped; return to conventional reading where playback finished.
-- Linux is the first target for personal use. Technology choices must account for possible macOS, Windows, iOS, and Android support later; those ports are outside this effort.
-- Omawrite is the intended fork and visual reference. Rust is a preference to investigate, not a settled requirement. The user has not programmed a Linux GUI before.
+- Linux with Omarchy integration is the primary target for personal use. The user now requests both Qt/QML and Tauri variants, with Tauri providing the route to other platforms. Platform release commitments remain undecided; toolkit support alone does not establish working ports.
+- Omawrite is the intended Linux fork and visual reference. Prefer Rust application logic behind Qt/QML, retaining C++ as a fallback if integration is not workable. The architecture ticket records this direction and the proposed shared core. The user has not programmed a Linux GUI before.
 - Default local test book: `test-data/local/default.epub`, supplied by the user and moved from Downloads. This directory is ignored by Git. Do not commit or redistribute its contents. The rendering prototype has exercised this book and checked extracted pieces against source locations; broader EPUB compatibility remains unverified.
 - New user-requested scope: optional Jev-assisted capture of recently displayed words for a personal review list. Keep the integration in a self-contained deep module. Dictionary definitions and recognition practice require a separate scope decision.
 - Product name is deferred.
@@ -36,6 +36,8 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 
 - [Which definition lookup and recognition practice belong in the first release?](issues/09-vocabulary-review-scope.md): Local Kaikki/Wiktionary definitions with all senses beside captured context, explicit missing-entry feedback, and a simple optional practice draft.
 
+- [How should chapter-end feedback help the reader choose a comfortable pace?](issues/10-chapter-feedback.md): Optional chapter feedback with explicit 25 WPM suggestions, saved speed per book, and local per-book history that can be viewed and cleared.
+
 ## Not yet specified
 
 - Later refinements to the accepted pacing and interaction after longer reading sessions.
@@ -44,7 +46,7 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 ## Out of scope
 
 - Writing and editing books.
-- Shipping non-Linux ports in the first release.
+- Guaranteed simultaneous releases on every platform before platform-specific validation.
 - A browsable library, accounts, cloud sync, and book acquisition for the first release.
 - DRM removal, non-EPUB formats, and graph/table-heavy books for the first release.
 - Product naming and branding.

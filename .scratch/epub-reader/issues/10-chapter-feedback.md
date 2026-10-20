@@ -4,7 +4,7 @@ Id: 10
 Parent: ../map.md
 Labels: wayfinder:prototype
 Type: prototype
-Status: claimed
+Status: resolved
 Assignee: codex
 Blocked by: 04
 
@@ -18,12 +18,9 @@ Prototype a small chapter-end prompt for feedback about playback speed and perce
 
 2026-10-20, user confirmation: Use "How did the pace feel?" with "too slow / comfortable / too fast", and "How well could you follow the text?" with "easily / mostly / struggled". Any suggested WPM change requires the reader's acceptance.
 
-## Open decisions
+## Decision status
 
-- How the prompt, skip, and continue controls behave, including when prompts are disabled.
-- What feedback and reading-session context to retain, and how users inspect or clear it.
-- Whether to offer explicit pace suggestions in the first release or collect feedback first, and how to derive suggestions. Suggestions require explicit acceptance; do not change pace automatically.
-- How to represent sessions where the pace changed during the chapter.
+The remaining interaction, pace guidance, and history choices were accepted on 2026-10-21. See Answer for the agreed behavior.
 
 ## Evidence boundary
 
@@ -45,6 +42,8 @@ Worktree: `/home/strgenix/speedreading-prototypes/content-review`
 
 ## Comments
 
+2026-10-21: Resuming this claimed decision in the next wayfinder session. Settle chapter-boundary continuation, whether simple explicit pace suggestions ship initially, and feedback retention/inspection. Existing questions and optional disable behavior remain confirmed; recommendations in the conversation are pending user choices.
+
 2026-10-20: User authorized both feedback and rendering prototypes for review. Implemented agreed questions, skip/continue, persistent disable, saved feedback, export, and an optional 25 WPM suggestion requiring explicit acceptance. The step size and suggestion rule are experimental, not user-approved decisions. Preview responses are labelled separately. Feedback retains pace changes and source endpoints; no comprehension score is inferred.
 
 Browser checks confirmed accepted suggestions and responses persist, skipping stores no answers, disabling survives reload, and the dialog fits desktop and narrow screens. Continue begins the next chapter; disabled prompts still leave a chapter-boundary pause. Keep this ticket claimed pending user review of the interaction, suggestion rule, and storage choices.
@@ -52,3 +51,14 @@ Browser checks confirmed accepted suggestions and responses persist, skipping st
 2026-10-20, user review correction: Title pages are not chapters and must not trigger chapter feedback. The revised prototype prompts only for identified chapters; front matter can advance without a check-in. The explicit feedback preview moves from front matter to the first identified chapter. Verified both title playback and preview behavior in Chromium.
 
 2026-10-20: The user's request to avoid per-chapter review applies to vocabulary. Vocabulary review is on demand with a close-book reminder; this does not remove the separately agreed optional chapter pace/understanding check-in.
+
+## Answer
+
+2026-10-21: The user accepted the proposed defaults and confirmed that speed may be saved per book.
+
+- Pause at chapter boundaries. Offer Save and continue and Skip and continue; both start the next chapter. Skipping stores no feedback answers. When feedback is disabled, retain the pause with a single Continue action. Title pages and other front matter do not trigger chapter feedback.
+- Include explicit pace suggestions in the first release. Too fast offers a decrease of 25 WPM; too slow offers an increase of 25 WPM; comfortable offers no change. Apply changes only when the reader accepts them. Record understanding answers separately; they do not automatically determine pace changes.
+- Remember the selected reading speed separately for each book, including accepted suggestions. Reopening a book restores its saved speed. The previously accepted 350 WPM baseline applies before a book has a saved speed.
+- Keep local, per-book feedback history with the chapter, date, answers, and pace changes during that chapter. Provide a simple history view and a clear-history action for each book. Preserve the sequence of pace changes rather than representing a varying chapter pace as one fixed speed.
+
+These are product decisions. The 25 WPM increment is an initial interaction choice, and understanding answers remain subjective feedback. The existing prototype supplies interaction evidence; this resolution does not claim that every newly settled persistence or history requirement has already been implemented.
