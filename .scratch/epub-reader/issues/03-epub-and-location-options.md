@@ -4,7 +4,7 @@ Id: 03
 Parent: ../map.md
 Labels: wayfinder:research
 Type: research
-Status: claimed
+Status: resolved
 Assignee: codex-research-03
 Blocked by: 
 
@@ -17,3 +17,9 @@ Investigate maintained Rust EPUB crates and primary EPUB specifications. Separat
 Branch: research/epub-and-location-options
 Worktree: /home/strgenix/speedreading-research/epub-and-location-options
 Findings: ../research/epub-and-location-options.md
+
+## Answer
+
+Resolved on 2026-10-20. Rust EPUB parsing is feasible. Evaluate `rbook` first, with `epub` as a comparison; neither removes the need for XHTML layout and shared source-location mapping. Preserve source spans during tokenization and prove exact passage round-tripping before selecting the renderer. CFI and Readium-style locators offer reference models, with explicit Unicode offset handling required.
+
+See [EPUB libraries and reading locations](../research/epub-and-location-options.md) for dated package evidence, limitations, location recommendations and validation gates. No user EPUB or rendering prototype was tested. This resolves the investigation, not the architecture or content-policy decisions.
