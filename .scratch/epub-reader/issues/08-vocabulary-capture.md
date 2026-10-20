@@ -15,3 +15,31 @@ Prototype a shortcut that captures recently displayed text without requiring wor
 ## Notes
 
 Consult typesafe-ai, codebase-design, and prototype. Read current TypeSafe API, Score, state, confidence, and reranking guidance before integration. No production GUI choice is implied by a local experiment. Never put API keys in the browser or committed files.
+
+## Prototype context
+
+Branch: `prototype/vocabulary-capture`
+
+Commit: `4e78222eb4927416e9dbbfa9407c125906d7dd03`
+
+Worktree: `/home/strgenix/speedreading-prototypes/vocabulary-capture`
+
+- [Module guide and verification evidence](/home/strgenix/speedreading-prototypes/vocabulary-capture/prototypes/vocabulary-capture/README.md)
+- [Deep module](/home/strgenix/speedreading-prototypes/vocabulary-capture/prototypes/vocabulary-capture/vocabulary.py)
+- [Local experiment](http://127.0.0.1:8768/), while its backend is running.
+
+## Comments
+
+2026-10-20: The user confirmed that capture should keep playback running, with review later. The user supplied a local key file at `/home/strgenix/speedreading/jev-speedreading.key`. The backend reads it directly; it is outside the repository, has owner-only permissions, and was not displayed or committed.
+
+Built an isolated Python module and thin local-browser adapter without changing the existing reader files. The implementation is an experiment in the module's interface, not a native language or GUI decision. The module owns time/sentence window selection, complete lexical candidate reconstruction, persistence, model prompts, typed-response validation, background jobs, and deduplicated saved words.
+
+C captures recent playback using a selectable three-second or three-sentence window. V pauses and opens review. Only the already-displayed part of the current sentence is captured. Split compounds become one vocabulary candidate only after all pieces were displayed. Keep is an explicit reader choice; the model does not silently populate the personal word list. Existing captures survive unavailable credentials, request failures, and restarts.
+
+Read live TypeSafe API, Score, state, confidence, model, and reranking documentation. Use one comparable recognition-practice Score per candidate in a shared state request, pinned to `jev-1.13.0`. Scores are graded judgments, not calibrated personal probabilities of having caused the interruption. Raw distributions and usage are retained.
+
+Offline module checks verified time selection excluding pauses, unread-tail exclusion, partial-compound handling, deduplication, persistence, and reader choices during an in-flight request. Two small live requests on invented text verified the contract and browser flow: an uncommon-word example ranked the intended rare words above ordinary words; the UI capture returned all 13 requested judgments, kept playback running, and persisted a kept word across reload. No JavaScript exceptions occurred. These are integration observations, not evidence of personalized accuracy.
+
+The user's backend runs on localhost with an initially empty private database at `test-data/local/vocabulary.sqlite`; separate temporary databases held all test captures. The live experiment was opened in the browser.
+
+Still open: user preference for capture window; whether the actual distracting word ranks near the top in real reading; review presentation; the depth of per-reader feedback; and whether this module interface remains sufficient for the eventual native core. Definitions and training are covered by the separate review-scope ticket. Keep this ticket claimed until the user has tried the feature.
