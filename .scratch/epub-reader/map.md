@@ -1,0 +1,38 @@
+# Find the way to a simple EPUB reader
+
+Labels: wayfinder:map
+Status: open
+
+## Destination
+
+A build-ready specification for a Linux-first, native EPUB reader with conventional reading and smooth, focused speedreading. Resolve the product, content, architecture, and validation decisions needed to begin implementation.
+
+## Notes
+
+- This is a planning effort. Research and disposable prototypes support decisions; implementation follows this map.
+- Consult wayfinder, grilling, and domain-modeling for decision sessions; research for research tickets; prototype for interaction experiments.
+- User-confirmed requirements: local DRM-free EPUBs; remember reading position; fiction and nonfiction, primarily text; comfortable focus and good comprehension take priority over maximum speed.
+- Enter speedreading at the current passage with one shortcut; continue through paragraphs until stopped; return to conventional reading where playback finished.
+- Linux is the first target for personal use. Technology choices must account for possible macOS, Windows, iOS, and Android support later; those ports are outside this effort.
+- Omawrite is the intended fork and visual reference. Rust is a preference to investigate, not a settled requirement. The user has not programmed a Linux GUI before.
+- The user will provide an EPUB for testing. Do not commit or redistribute its contents.
+- Product name is deferred.
+- Tracker: local Markdown, following /home/strgenix/.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md. Tickets have stable numbered identities, Type, Labels, Parent, Status, Assignee, and Blocked by fields. Open unassigned tickets whose blockers are resolved form the frontier, ordered by number. Claim before work; append resolutions under Answer. The map indexes resolutions only.
+- Planning lives on planning/epub-reader in the local Omawrite checkout. This is not yet a hosted fork.
+
+## Decisions so far
+
+## Not yet specified
+
+- Details of pacing, interruptions, and interaction refinements after evidence and user reactions.
+- Content edge cases and reading-position recovery exposed by the supplied EPUB and content-policy discussion.
+- Packaging and verification details after architecture and first-release behavior are settled.
+
+## Out of scope
+
+- Writing and editing books.
+- Shipping non-Linux ports in the first release.
+- A browsable library, accounts, cloud sync, and book acquisition for the first release.
+- DRM removal, non-EPUB formats, and graph/table-heavy books for the first release.
+- Product naming and branding.
+- Production implementation during this planning map.
