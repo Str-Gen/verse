@@ -60,3 +60,9 @@ Revision 3 splits letter-to-letter hyphenated compounds while preserving convent
 The user accepted revision 3 as feeling good enough to proceed, with later refinement expected. Adopt its current interaction as the first implementation baseline: conventional reading with explicit word selection or first-visible-word entry, Space playback/pause, exact displayed-piece return, separate sentence rewind, 350 wpm default, a fixed focus guide, medium serif text, natural punctuation and paragraph timing, and smaller pieces for hyphenated compounds. Timing and typography remain tunable preferences, not scientifically optimal defaults. Preserve the committed prototype as the behavioral reference.
 
 The newly requested recent-context vocabulary capture is a separate decision ticket and deep module. It does not reopen the accepted playback baseline.
+
+2026-10-20, user refinement: Starting immediately at 350 WPM feels jarring. Ramp up toward the selected speed, and keep the speedreading display fixed at the center of the page. Implemented in both active review prototypes: half target speed at start/resume, rising linearly to the full target over two seconds, while preserving punctuation timing and the selected WPM. The initial fraction and duration are provisional tuning choices awaiting the user's reaction. Continuous playback does not repeatedly restart the ramp.
+
+The word box and guide now use viewport positioning so scrolling, pause controls, and study panels do not shift them. Chromium checks in both prototypes verified initial/resumed hold multipliers near 2x, convergence to full speed, exact viewport-center coordinates before/after resize, and return to conventional reading without page errors.
+
+References: content review commit `b107e40abfad879bc085992658a300da65ff6de5`, vocabulary review commit `f2ffeb1515acd2d3ec379da8e8bfd339c5e97ec9`. Earlier interaction artifacts remain the historical baseline.

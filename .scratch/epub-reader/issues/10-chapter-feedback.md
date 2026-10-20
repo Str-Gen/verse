@@ -33,7 +33,7 @@ Self-reported understanding is subjective feedback, not a measured comprehension
 
 Branch: `prototype/content-review`
 
-Latest commit: `395217e0e09c1f5faee5460be5d49dce19addb21`
+Latest commit: `b107e40abfad879bc085992658a300da65ff6de5`
 
 Original review commit: `480a79c4a31f7858415f920a79f0835651045c37`
 
