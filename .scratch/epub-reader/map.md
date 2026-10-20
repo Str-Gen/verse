@@ -16,6 +16,7 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 - Linux is the first target for personal use. Technology choices must account for possible macOS, Windows, iOS, and Android support later; those ports are outside this effort.
 - Omawrite is the intended fork and visual reference. Rust is a preference to investigate, not a settled requirement. The user has not programmed a Linux GUI before.
 - Default local test book: `test-data/local/default.epub`, supplied by the user and moved from Downloads. This directory is ignored by Git. Do not commit or redistribute its contents. ZIP integrity and EPUB container presence were checked; rendering and compatibility have not been tested.
+- New user-requested scope: optional Jev-assisted capture of recently displayed words for a personal review list. Keep the integration in a self-contained deep module. Dictionary definitions and recognition practice require a separate scope decision.
 - Product name is deferred.
 - Tracker: local Markdown, following /home/strgenix/.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md. Tickets have stable numbered identities, Type, Labels, Parent, Status, Assignee, and Blocked by fields. Open unassigned tickets whose blockers are resolved form the frontier, ordered by number. Claim before work; append resolutions under Answer. The map indexes resolutions only.
 - Planning lives on planning/epub-reader in the local Omawrite checkout. This is not yet a hosted fork.
@@ -27,9 +28,11 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 
 - [Which GUI and fork strategies fit Linux now and possible mobile ports later?](issues/02-gui-and-fork-options.md): Shortlist Qt/QML with Rust and Tauri with Rust; compare preserved book formatting with normalized prose before choosing, with Slint as a third candidate.
 
+- [What controls and pacing make the two reading modes feel right?](issues/04-reading-interaction.md): Revision 3 is accepted as the starting interaction; retain focus guide, 350 wpm, natural boundary pacing, and smaller compound pieces while allowing later refinement.
+
 ## Not yet specified
 
-- Details of pacing, interruptions, and interaction refinements after evidence and user reactions.
+- Later refinements to the accepted pacing and interaction after longer reading sessions.
 - Content edge cases and reading-position recovery exposed by the supplied EPUB and content-policy discussion.
 - Packaging and verification details after architecture and first-release behavior are settled.
 

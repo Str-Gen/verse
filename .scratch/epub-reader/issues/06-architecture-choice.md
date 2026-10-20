@@ -6,7 +6,7 @@ Labels: wayfinder:grilling
 Type: grilling
 Status: open
 Assignee: 
-Blocked by: 02, 03, 04, 05
+Blocked by: 02, 03, 04, 05, 08
 
 ## Question
 

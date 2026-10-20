@@ -4,7 +4,7 @@ Id: 04
 Parent: ../map.md
 Labels: wayfinder:prototype
 Type: prototype
-Status: claimed
+Status: resolved
 Assignee: codex
 Blocked by: 01
 
@@ -54,3 +54,9 @@ The revised private demo opened in the user's browser. The browser check exercis
 2026-10-20, further feedback: a large piece inside a parenthetical was too much to read at speed; an opening parenthesis can begin a sequence but must not group the entire aside into one presentation. Inspection found that parentheses already advanced word by word, but the first aside contained `eight-hundred-year-old` as a single unit. Treat this as the likely reported case, not confirmation of the user's exact stopping point.
 
 Revision 3 splits letter-to-letter hyphenated compounds while preserving conventional text and keeping parentheses attached to adjacent words. The browser displayed `eight-`, `hundred-`, `year-`, `old` separately and returned to the last displayed piece. All fixture paragraphs reconstructed exactly from pieces and gaps. The revised file was opened for the user; the ticket remains claimed for continued interaction feedback.
+
+## Answer
+
+The user accepted revision 3 as feeling good enough to proceed, with later refinement expected. Adopt its current interaction as the first implementation baseline: conventional reading with explicit word selection or first-visible-word entry, Space playback/pause, exact displayed-piece return, separate sentence rewind, 350 wpm default, a fixed focus guide, medium serif text, natural punctuation and paragraph timing, and smaller pieces for hyphenated compounds. Timing and typography remain tunable preferences, not scientifically optimal defaults. Preserve the committed prototype as the behavioral reference.
+
+The newly requested recent-context vocabulary capture is a separate decision ticket and deep module. It does not reopen the accepted playback baseline.
