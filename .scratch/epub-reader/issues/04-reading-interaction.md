@@ -4,8 +4,8 @@ Id: 04
 Parent: ../map.md
 Labels: wayfinder:prototype
 Type: prototype
-Status: open
-Assignee: 
+Status: claimed
+Assignee: codex
 Blocked by: 01
 
 ## Question
