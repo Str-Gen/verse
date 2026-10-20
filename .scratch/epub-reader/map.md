@@ -22,6 +22,11 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 
 ## Decisions so far
 
+- [Which speedreading behaviors support comfortable reading and comprehension?](issues/01-speedreading-evidence.md): Preserve reader control and rereading; timing and focus benefits need prototype validation, and higher speed does not guarantee retained comprehension.
+- [Which EPUB libraries and location models can support both reading modes?](issues/03-epub-and-location-options.md): Evaluate rbook first; parsing and layout are separate, and source-linked positions need a round-trip proof before renderer selection.
+
+- [Which GUI and fork strategies fit Linux now and possible mobile ports later?](issues/02-gui-and-fork-options.md): Shortlist Qt/QML with Rust and Tauri with Rust; compare preserved book formatting with normalized prose before choosing, with Slint as a third candidate.
+
 ## Not yet specified
 
 - Details of pacing, interruptions, and interaction refinements after evidence and user reactions.
