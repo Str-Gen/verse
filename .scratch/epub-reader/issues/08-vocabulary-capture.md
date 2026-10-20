@@ -20,7 +20,7 @@ Consult typesafe-ai, codebase-design, and prototype. Read current TypeSafe API, 
 
 Branch: `prototype/vocabulary-capture`
 
-Latest commit: `f2ffeb1515acd2d3ec379da8e8bfd339c5e97ec9`
+Latest commit: `b237c75246554c365bc52932f084fdb5e04bae79`
 
 Original prototype commit: `b16d4666cd6789ec2c2d4b22903f5b28ffcb2d9a`
 
