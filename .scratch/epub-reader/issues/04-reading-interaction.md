@@ -21,7 +21,9 @@ With the user, explore conventional-view entry, shortcut activation, word or phr
 
 Branch: `prototype/reading-interaction`
 
-Commit: `acab9aa3fbc0a28374f860ed7ddd76f3297eb388`
+Latest commit: `6dd12debc92c3a00da52ba738f0bad64678cd6ba`
+
+Original comparison commit: `acab9aa3fbc0a28374f860ed7ddd76f3297eb388`
 
 Worktree: `/home/strgenix/speedreading-prototypes/reading-interaction`
 
@@ -30,6 +32,7 @@ Assets:
 - [Prototype guide](/home/strgenix/speedreading-prototypes/reading-interaction/prototypes/reading-interaction/README.md)
 - [Shareable demo with original sample text](/home/strgenix/speedreading-prototypes/reading-interaction/prototypes/reading-interaction/reading-interaction.prototype.html)
 - [Private demo using the default EPUB](/home/strgenix/speedreading/omawrite/test-data/local/reading-interaction.html). This generated file contains book text and is ignored by Git.
+- [Revised private demo with reference pacing](/home/strgenix/speedreading/omawrite/test-data/local/reading-interaction-v2.html). This is the latest version; the first version remains available for comparison.
 
 ## Comments
 
@@ -38,3 +41,11 @@ Assets:
 The supplied book produced three narrative sections and 8,675 words under a deliberately limited extraction rule. Browser smoke checks exercised the transitions, visible highlight, timed advancement, and focus-loss pause without JavaScript exceptions. Conventional and aligned-word screenshots were visually inspected. This does not establish reading comfort or production EPUB source-location correctness.
 
 Awaiting the user's reaction to word alignment and return behavior. Remaining discussion includes pace and boundary pauses, phrase versus single-word presentation, entry when no word is selected, and desired interruption/restart behavior. No interaction decisions are resolved yet; keep this ticket claimed until the live feedback settles its question.
+
+2026-10-20, user feedback: the supplied recording's fixed bar helps keep focus aligned; 350 wpm feels like a nicer default; comma, semicolon, and sentence pacing feels more natural; long familiar words do not need extra time; slightly heavier text is preferred. These establish directions within this ticket, but do not settle the full interaction question.
+
+Inspected `/home/strgenix/Videos/screenrecording-2026-10-20_20-19-41.mp4` and compared timed word changes against the EPUB. Approximate observed medians were 117 ms for ordinary words, 317 ms for commas and the single observed semicolon, 433 ms for matched sentence endings within paragraphs, and 617 ms for matched paragraph endings. The prototype guide records the method, counts, and limitations. Neither the private recording nor its extracted text was committed.
+
+Revision 2 adds a stationary bracket-shaped focus guide, 350 wpm default, local Noto Serif at medium weight with alternatives, separate clause/sentence holds plus extra paragraph time, and em-dash piece splitting. Long words retain the ordinary hold. Pace now includes pauses over a section; this interpretation of the control remains a proposal. Animation-frame deadlines keep changes aligned to display refresh without a catch-up burst after interruptions.
+
+The revised private demo opened in the user's browser. The browser check exercised transitions and observed ordinary holds of 116–134 ms without JavaScript exceptions. Actual comfort and preference still require the user's response. Exact return versus sentence return, centered versus aligned words, and single-word versus phrase display remain open. Keep this ticket claimed.

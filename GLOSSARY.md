@@ -12,3 +12,6 @@ Paced presentation of book text that advances automatically across paragraphs un
 
 **Reading position**:
 The place in a book where reading resumes. Returning from speedreading uses the place reached during playback.
+
+**Focus guide**:
+A stationary mark beneath playback text that gives the reader a fixed point for visual alignment.
