@@ -50,3 +50,5 @@ Worktree: `/home/strgenix/speedreading-prototypes/content-review`
 Browser checks confirmed accepted suggestions and responses persist, skipping stores no answers, disabling survives reload, and the dialog fits desktop and narrow screens. Continue begins the next chapter; disabled prompts still leave a chapter-boundary pause. Keep this ticket claimed pending user review of the interaction, suggestion rule, and storage choices.
 
 2026-10-20, user review correction: Title pages are not chapters and must not trigger chapter feedback. The revised prototype prompts only for identified chapters; front matter can advance without a check-in. The explicit feedback preview moves from front matter to the first identified chapter. Verified both title playback and preview behavior in Chromium.
+
+2026-10-20: The user's request to avoid per-chapter review applies to vocabulary. Vocabulary review is on demand with a close-book reminder; this does not remove the separately agreed optional chapter pace/understanding check-in.

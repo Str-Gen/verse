@@ -15,7 +15,7 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 - Enter speedreading at the current passage with one shortcut; continue through paragraphs until stopped; return to conventional reading where playback finished.
 - Linux is the first target for personal use. Technology choices must account for possible macOS, Windows, iOS, and Android support later; those ports are outside this effort.
 - Omawrite is the intended fork and visual reference. Rust is a preference to investigate, not a settled requirement. The user has not programmed a Linux GUI before.
-- Default local test book: `test-data/local/default.epub`, supplied by the user and moved from Downloads. This directory is ignored by Git. Do not commit or redistribute its contents. ZIP integrity and EPUB container presence were checked; rendering and compatibility have not been tested.
+- Default local test book: `test-data/local/default.epub`, supplied by the user and moved from Downloads. This directory is ignored by Git. Do not commit or redistribute its contents. The rendering prototype has exercised this book and checked extracted pieces against source locations; broader EPUB compatibility remains unverified.
 - New user-requested scope: optional Jev-assisted capture of recently displayed words for a personal review list. Keep the integration in a self-contained deep module. Dictionary definitions and recognition practice require a separate scope decision.
 - Product name is deferred.
 - Tracker: local Markdown, following /home/strgenix/.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md. Tickets have stable numbered identities, Type, Labels, Parent, Status, Assignee, and Blocked by fields. Open unassigned tickets whose blockers are resolved form the frontier, ordered by number. Claim before work; append resolutions under Answer. The map indexes resolutions only.
@@ -31,6 +31,8 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 - [What controls and pacing make the two reading modes feel right?](issues/04-reading-interaction.md): Revision 3 is accepted as the starting interaction; retain focus guide, 350 wpm, natural boundary pacing, and smaller compound pieces while allowing later refinement.
 
 - [What EPUB content and reading-position behavior does the first release promise?](issues/05-content-contract.md): Reader-controlled typography with retained structure, image pauses, optional footnote playback, chapter feedback, per-book resume, and explicit failure feedback; drag-and-drop is optional.
+
+- [How should recent-context capture and Jev ranking build a useful personal word list?](issues/08-vocabulary-capture.md): Five seconds or three sentences, explicit unfamiliar/recognition feedback or dismissal, book-specific review on demand, and an optional close-book reminder.
 
 ## Not yet specified
 
