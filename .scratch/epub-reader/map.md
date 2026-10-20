@@ -30,10 +30,11 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 
 - [What controls and pacing make the two reading modes feel right?](issues/04-reading-interaction.md): Revision 3 is accepted as the starting interaction; retain focus guide, 350 wpm, natural boundary pacing, and smaller compound pieces while allowing later refinement.
 
+- [What EPUB content and reading-position behavior does the first release promise?](issues/05-content-contract.md): Reader-controlled typography with retained structure, image pauses, optional footnote playback, chapter feedback, per-book resume, and explicit failure feedback; drag-and-drop is optional.
+
 ## Not yet specified
 
 - Later refinements to the accepted pacing and interaction after longer reading sessions.
-- Content edge cases and reading-position recovery exposed by the supplied EPUB and content-policy discussion.
 - Packaging and verification details after architecture and first-release behavior are settled.
 
 ## Out of scope
