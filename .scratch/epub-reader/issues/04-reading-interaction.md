@@ -78,3 +78,5 @@ Browser verification in both prototypes confirmed that the starting piece remain
 The chapter header and footer distract during speedreading. Hide header, footer, chapter information, and playback hints by default, leaving only the centered word and guide. A locally saved menu option allows users to show the controls. Space pauses/resumes and Escape restores conventional reading and menus.
 
 Chromium verification in both prototypes confirmed the two-second intro, 30-second ramp shape, immediate full-speed brief resume, fresh preparation after a longer pause, hidden default controls, working keyboard navigation, opt-in controls, and persistence of the display preference, without page errors. The quiet focus view was visually inspected.
+
+2026-10-21: The user said to move on after these revisions. Adopt the current quiet focus view and playback startup behavior as the interaction baseline. Keep the disclosed 30-second brief-pause cutoff as the initial implementation choice, adjustable through later feedback.

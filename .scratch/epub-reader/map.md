@@ -34,6 +34,8 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 
 - [How should recent-context capture and Jev ranking build a useful personal word list?](issues/08-vocabulary-capture.md): Five seconds or three sentences, explicit unfamiliar/recognition feedback or dismissal, book-specific review on demand, and an optional close-book reminder.
 
+- [Which definition lookup and recognition practice belong in the first release?](issues/09-vocabulary-review-scope.md): Local Kaikki/Wiktionary definitions with all senses beside captured context, explicit missing-entry feedback, and a simple optional practice draft.
+
 ## Not yet specified
 
 - Later refinements to the accepted pacing and interaction after longer reading sessions.
