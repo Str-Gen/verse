@@ -11,3 +11,6 @@ moc_*.cpp
 qrc_*.cpp
 .qmake.stash
 Makefile
+
+# Private local books used for testing.
+/test-data/local/

@@ -15,7 +15,7 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 - Enter speedreading at the current passage with one shortcut; continue through paragraphs until stopped; return to conventional reading where playback finished.
 - Linux is the first target for personal use. Technology choices must account for possible macOS, Windows, iOS, and Android support later; those ports are outside this effort.
 - Omawrite is the intended fork and visual reference. Rust is a preference to investigate, not a settled requirement. The user has not programmed a Linux GUI before.
-- The user will provide an EPUB for testing. Do not commit or redistribute its contents.
+- Default local test book: `test-data/local/default.epub`, supplied by the user and moved from Downloads. This directory is ignored by Git. Do not commit or redistribute its contents. ZIP integrity and EPUB container presence were checked; rendering and compatibility have not been tested.
 - Product name is deferred.
 - Tracker: local Markdown, following /home/strgenix/.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md. Tickets have stable numbered identities, Type, Labels, Parent, Status, Assignee, and Blocked by fields. Open unassigned tickets whose blockers are resolved form the frontier, ordered by number. Claim before work; append resolutions under Answer. The map indexes resolutions only.
 - Planning lives on planning/epub-reader in the local Omawrite checkout. This is not yet a hosted fork.
