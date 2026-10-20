@@ -29,7 +29,7 @@ Consult prototype. Keep user book text in ignored local assets. This experiment 
 
 Branch: `prototype/content-review`
 
-Latest commit: `2145bdd3d41197fe10ca61798ee1764ef534af8c`
+Latest commit: `72ebbcfc7981a67928785db49fa7324a4876e66b`
 
 Original review commit: `480a79c4a31f7858415f920a79f0835651045c37`
 

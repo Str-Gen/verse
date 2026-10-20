@@ -72,3 +72,9 @@ References: content review commit `b107e40abfad879bc085992658a300da65ff6de5`, vo
 2026-10-20, user refinement: The intro should be a soft pulse lasting two to three seconds before the speed ramp starts. Both active prototypes now use a 2.5-second opacity pulse on the starting word and guide, fixed at viewport center, followed by the existing five-second tanh ramp. Start/resume holds the same source piece through preparation. Pausing or returning cancels preparation; vocabulary capture excludes this preparation time.
 
 Browser verification in both prototypes confirmed that the starting piece remains unchanged during the pulse, the pulse ends around 2.5 seconds, ramping follows it, and pausing during preparation prevents a later restart. The vocabulary reader rejects a capture made before any actual playback exposure. No page JavaScript exceptions occurred.
+
+2026-10-20, user refinements: Use a two-second pulse and a 30-second tanh buildup from 50% to 100%. After a brief pause, resume directly at full selected speed without repeating the preparation. Implemented in both active prototypes with an initial 30-second cutoff for a brief pause, disclosed to the user as an assumption. Cancelling the intro before reading begins still requires a fresh start.
+
+The chapter header and footer distract during speedreading. Hide header, footer, chapter information, and playback hints by default, leaving only the centered word and guide. A locally saved menu option allows users to show the controls. Space pauses/resumes and Escape restores conventional reading and menus.
+
+Chromium verification in both prototypes confirmed the two-second intro, 30-second ramp shape, immediate full-speed brief resume, fresh preparation after a longer pause, hidden default controls, working keyboard navigation, opt-in controls, and persistence of the display preference, without page errors. The quiet focus view was visually inspected.
