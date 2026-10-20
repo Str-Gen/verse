@@ -1,0 +1,1907 @@
+{
+  "binary": "/home/strgenix/speedreading/overnight-20261021/worktrees/qt/prototypes/overnight/qt/target/release/overnight-qt-reader",
+  "executable_file_bytes": 2900024,
+  "fixture": "fixtures/demo.json",
+  "rendering": "Qt offscreen platform, software Qt Quick backend, QT_SCALE_FACTOR=1",
+  "sample_delay_seconds": 1.0,
+  "inherited_qt_platform_theme": "gtk3",
+  "inherited_qt_style_override": null,
+  "notes": [
+    "RSS summed across processes can count shared pages more than once; PSS apportions shared pages.",
+    "Shared library file sizes are unique mapped paths, separate from executable size; they are not bundle size or memory.",
+    "native_first_frame_ms measures native entry before QGuiApplication to first frameSwapped, not external process startup; null means no startup evidence.",
+    "Trials run sequentially on the current host; concurrent unrelated workloads are uncontrolled."
+  ],
+  "trials": [
+    {
+      "process_spawn_to_sample_ms": 1000.071,
+      "running_at_sample": true,
+      "processes": [
+        {
+          "pid": 157556,
+          "rss_bytes": 133525504,
+          "pss_bytes": 60344320
+        }
+      ],
+      "process_tree_rss_bytes": 133525504,
+      "process_tree_pss_bytes": 60344320,
+      "memory_complete": true,
+      "mapped_shared_libraries": [
+        {
+          "path": "/etc/ld.so.cache",
+          "file_bytes": 169827
+        },
+        {
+          "path": "/usr/lib/gio/modules/libdconfsettings.so",
+          "file_bytes": 59432
+        },
+        {
+          "path": "/usr/lib/gio/modules/libgvfsdbus.so",
+          "file_bytes": 203072
+        },
+        {
+          "path": "/usr/lib/gvfs/libgvfscommon.so",
+          "file_bytes": 243656
+        },
+        {
+          "path": "/usr/lib/ld-linux-x86-64.so.2",
+          "file_bytes": 263152
+        },
+        {
+          "path": "/usr/lib/libEGL.so.1.1.0",
+          "file_bytes": 67536
+        },
+        {
+          "path": "/usr/lib/libFcitx5Qt6DBusAddons.so.5.1.16",
+          "file_bytes": 385032
+        },
+        {
+          "path": "/usr/lib/libGLX.so.0.0.0",
+          "file_bytes": 133064
+        },
+        {
+          "path": "/usr/lib/libGLX_nvidia.so.615.78.08",
+          "file_bytes": 1211968
+        },
+        {
+          "path": "/usr/lib/libGLdispatch.so.0.0.0",
+          "file_bytes": 460896
+        },
+        {
+          "path": "/usr/lib/libOpenGL.so.0.0.0",
+          "file_bytes": 145432
+        },
+        {
+          "path": "/usr/lib/libQt6Core.so.6.12.0",
+          "file_bytes": 7078320
+        },
+        {
+          "path": "/usr/lib/libQt6DBus.so.6.12.0",
+          "file_bytes": 840704
+        },
+        {
+          "path": "/usr/lib/libQt6Gui.so.6.12.0",
+          "file_bytes": 9914880
+        },
+        {
+          "path": "/usr/lib/libQt6Network.so.6.12.0",
+          "file_bytes": 2067552
+        },
+        {
+          "path": "/usr/lib/libQt6OpenGL.so.6.12.0",
+          "file_bytes": 685952
+        },
+        {
+          "path": "/usr/lib/libQt6Qml.so.6.12.0",
+          "file_bytes": 6154368
+        },
+        {
+          "path": "/usr/lib/libQt6QmlMeta.so.6.12.0",
+          "file_bytes": 168192
+        },
+        {
+          "path": "/usr/lib/libQt6QmlModels.so.6.12.0",
+          "file_bytes": 1243008
+        },
+        {
+          "path": "/usr/lib/libQt6QmlWorkerScript.so.6.12.0",
+          "file_bytes": 85256
+        },
+        {
+          "path": "/usr/lib/libQt6Quick.so.6.12.0",
+          "file_bytes": 8015968
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2.so.6.12.0",
+          "file_bytes": 96904
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2Basic.so.6.12.0",
+          "file_bytes": 2895888
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2BasicStyleImpl.so.6.12.0",
+          "file_bytes": 110232
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2Impl.so.6.12.0",
+          "file_bytes": 385680
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2.so.6.12.0",
+          "file_bytes": 170760
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2QuickImpl.so.6.12.0",
+          "file_bytes": 4120208
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2Utils.so.6.12.0",
+          "file_bytes": 30992
+        },
+        {
+          "path": "/usr/lib/libQt6QuickLayouts.so.6.12.0",
+          "file_bytes": 364680
+        },
+        {
+          "path": "/usr/lib/libQt6QuickTemplates2.so.6.12.0",
+          "file_bytes": 2655240
+        },
+        {
+          "path": "/usr/lib/libQt6Svg.so.6.12.0",
+          "file_bytes": 678784
+        },
+        {
+          "path": "/usr/lib/libQt6WaylandClient.so.6.12.0",
+          "file_bytes": 1169128
+        },
+        {
+          "path": "/usr/lib/libQt6Widgets.so.6.12.0",
+          "file_bytes": 8012032
+        },
+        {
+          "path": "/usr/lib/libX11.so.6.4.0",
+          "file_bytes": 1378688
+        },
+        {
+          "path": "/usr/lib/libXau.so.6.0.0",
+          "file_bytes": 14232
+        },
+        {
+          "path": "/usr/lib/libXcomposite.so.1.0.0",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libXcursor.so.1.0.2",
+          "file_bytes": 47048
+        },
+        {
+          "path": "/usr/lib/libXdamage.so.1.1.0",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libXdmcp.so.6.0.0",
+          "file_bytes": 26488
+        },
+        {
+          "path": "/usr/lib/libXext.so.6.4.0",
+          "file_bytes": 76928
+        },
+        {
+          "path": "/usr/lib/libXfixes.so.3.1.0",
+          "file_bytes": 26432
+        },
+        {
+          "path": "/usr/lib/libXi.so.6.1.0",
+          "file_bytes": 79928
+        },
+        {
+          "path": "/usr/lib/libXinerama.so.1.0.0",
+          "file_bytes": 14328
+        },
+        {
+          "path": "/usr/lib/libXrandr.so.2.2.0",
+          "file_bytes": 47088
+        },
+        {
+          "path": "/usr/lib/libXrender.so.1.3.0",
+          "file_bytes": 43152
+        },
+        {
+          "path": "/usr/lib/libatk-1.0.so.0.26210.1",
+          "file_bytes": 157656
+        },
+        {
+          "path": "/usr/lib/libatk-bridge-2.0.so.0.0.0",
+          "file_bytes": 244552
+        },
+        {
+          "path": "/usr/lib/libatspi.so.0.0.1",
+          "file_bytes": 244048
+        },
+        {
+          "path": "/usr/lib/libb2.so.1.0.4",
+          "file_bytes": 120960
+        },
+        {
+          "path": "/usr/lib/libblkid.so.1.1.0",
+          "file_bytes": 256896
+        },
+        {
+          "path": "/usr/lib/libbrotlicommon.so.1.2.0",
+          "file_bytes": 141264
+        },
+        {
+          "path": "/usr/lib/libbrotlidec.so.1.2.0",
+          "file_bytes": 55168
+        },
+        {
+          "path": "/usr/lib/libbrotlienc.so.1.2.0",
+          "file_bytes": 780768
+        },
+        {
+          "path": "/usr/lib/libbz2.so.1.0.8",
+          "file_bytes": 74720
+        },
+        {
+          "path": "/usr/lib/libc.so.6",
+          "file_bytes": 2215072
+        },
+        {
+          "path": "/usr/lib/libcairo-gobject.so.2.11806.6",
+          "file_bytes": 34616
+        },
+        {
+          "path": "/usr/lib/libcairo.so.2.11806.6",
+          "file_bytes": 1342184
+        },
+        {
+          "path": "/usr/lib/libcloudproviders.so.0.4.1",
+          "file_bytes": 96304
+        },
+        {
+          "path": "/usr/lib/libcom_err.so.2.1",
+          "file_bytes": 18376
+        },
+        {
+          "path": "/usr/lib/libcrypto.so.3",
+          "file_bytes": 5926392
+        },
+        {
+          "path": "/usr/lib/libcurl.so.4.8.0",
+          "file_bytes": 1091176
+        },
+        {
+          "path": "/usr/lib/libdatrie.so.1.4.1",
+          "file_bytes": 30672
+        },
+        {
+          "path": "/usr/lib/libdbus-1.so.3.38.3",
+          "file_bytes": 334008
+        },
+        {
+          "path": "/usr/lib/libdl.so.2",
+          "file_bytes": 14352
+        },
+        {
+          "path": "/usr/lib/libdouble-conversion.so.3.4.0",
+          "file_bytes": 92208
+        },
+        {
+          "path": "/usr/lib/libduktape.so.207.20700",
+          "file_bytes": 309200
+        },
+        {
+          "path": "/usr/lib/libepoxy.so.0.0.0",
+          "file_bytes": 1099376
+        },
+        {
+          "path": "/usr/lib/libexpat.so.1.13.0",
+          "file_bytes": 190408
+        },
+        {
+          "path": "/usr/lib/libffi.so.8.5.0",
+          "file_bytes": 51432
+        },
+        {
+          "path": "/usr/lib/libfontconfig.so.1.17.0",
+          "file_bytes": 501720
+        },
+        {
+          "path": "/usr/lib/libfreetype.so.6.20.7",
+          "file_bytes": 931784
+        },
+        {
+          "path": "/usr/lib/libfribidi.so.0.4.0",
+          "file_bytes": 137272
+        },
+        {
+          "path": "/usr/lib/libgcc_s.so.1",
+          "file_bytes": 182512
+        },
+        {
+          "path": "/usr/lib/libgdk-3.so.0.2420.32",
+          "file_bytes": 993584
+        },
+        {
+          "path": "/usr/lib/libgdk_pixbuf-2.0.so.0.4400.8",
+          "file_bytes": 240824
+        },
+        {
+          "path": "/usr/lib/libgio-2.0.so.0.9000.1",
+          "file_bytes": 1969504
+        },
+        {
+          "path": "/usr/lib/libglib-2.0.so.0.9000.1",
+          "file_bytes": 1457576
+        },
+        {
+          "path": "/usr/lib/libglycin-2.so.0",
+          "file_bytes": 4629488
+        },
+        {
+          "path": "/usr/lib/libgmodule-2.0.so.0.9000.1",
+          "file_bytes": 22464
+        },
+        {
+          "path": "/usr/lib/libgobject-2.0.so.0.9000.1",
+          "file_bytes": 399456
+        },
+        {
+          "path": "/usr/lib/libgomp.so.1.0.0",
+          "file_bytes": 363560
+        },
+        {
+          "path": "/usr/lib/libgraphite2.so.3.3.1",
+          "file_bytes": 137160
+        },
+        {
+          "path": "/usr/lib/libgssapi_krb5.so.2.2",
+          "file_bytes": 360736
+        },
+        {
+          "path": "/usr/lib/libgtk-3.so.0.2420.32",
+          "file_bytes": 7550296
+        },
+        {
+          "path": "/usr/lib/libharfbuzz.so.0.61460.0",
+          "file_bytes": 1351824
+        },
+        {
+          "path": "/usr/lib/libicudata.so.78.3",
+          "file_bytes": 33112920
+        },
+        {
+          "path": "/usr/lib/libicui18n.so.78.3",
+          "file_bytes": 3721776
+        },
+        {
+          "path": "/usr/lib/libicuuc.so.78.3",
+          "file_bytes": 2144304
+        },
+        {
+          "path": "/usr/lib/libidn2.so.0.4.0",
+          "file_bytes": 133064
+        },
+        {
+          "path": "/usr/lib/libjpeg.so.8.3.2",
+          "file_bytes": 686104
+        },
+        {
+          "path": "/usr/lib/libjson-glib-1.0.so.0.1000.8",
+          "file_bytes": 170016
+        },
+        {
+          "path": "/usr/lib/libk5crypto.so.3.1",
+          "file_bytes": 182320
+        },
+        {
+          "path": "/usr/lib/libkeyutils.so.1.10",
+          "file_bytes": 22480
+        },
+        {
+          "path": "/usr/lib/libkrb5.so.3.3",
+          "file_bytes": 845896
+        },
+        {
+          "path": "/usr/lib/libkrb5support.so.0.1",
+          "file_bytes": 55544
+        },
+        {
+          "path": "/usr/lib/libm.so.6",
+          "file_bytes": 1268336
+        },
+        {
+          "path": "/usr/lib/libmd4c.so.0.6.0",
+          "file_bytes": 96200
+        },
+        {
+          "path": "/usr/lib/libmount.so.1.1.0",
+          "file_bytes": 379488
+        },
+        {
+          "path": "/usr/lib/libnghttp2.so.14.29.5",
+          "file_bytes": 165928
+        },
+        {
+          "path": "/usr/lib/libnghttp3.so.9.9.0",
+          "file_bytes": 160768
+        },
+        {
+          "path": "/usr/lib/libngtcp2.so.16.11.0",
+          "file_bytes": 374768
+        },
+        {
+          "path": "/usr/lib/libngtcp2_crypto_ossl.so.0.3.1",
+          "file_bytes": 47064
+        },
+        {
+          "path": "/usr/lib/libnvidia-glcore.so.615.78.08",
+          "file_bytes": 41902312
+        },
+        {
+          "path": "/usr/lib/libnvidia-glsi.so.615.78.08",
+          "file_bytes": 603080
+        },
+        {
+          "path": "/usr/lib/libnvidia-gpucomp.so.615.78.08",
+          "file_bytes": 121572536
+        },
+        {
+          "path": "/usr/lib/libnvidia-tls.so.615.78.08",
+          "file_bytes": 18632
+        },
+        {
+          "path": "/usr/lib/libpango-1.0.so.0.5800.2",
+          "file_bytes": 450312
+        },
+        {
+          "path": "/usr/lib/libpangocairo-1.0.so.0.5800.2",
+          "file_bytes": 71688
+        },
+        {
+          "path": "/usr/lib/libpangoft2-1.0.so.0.5800.2",
+          "file_bytes": 124888
+        },
+        {
+          "path": "/usr/lib/libpcre2-16.so.0.16.1",
+          "file_bytes": 674088
+        },
+        {
+          "path": "/usr/lib/libpcre2-8.so.0.16.1",
+          "file_bytes": 727336
+        },
+        {
+          "path": "/usr/lib/libpixman-1.so.0.46.4",
+          "file_bytes": 714800
+        },
+        {
+          "path": "/usr/lib/libpng16.so.16.59.0",
+          "file_bytes": 243736
+        },
+        {
+          "path": "/usr/lib/libproxy.so.0.5.12",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libproxy/libpxbackend-1.0.so",
+          "file_bytes": 59432
+        },
+        {
+          "path": "/usr/lib/libpsl.so.5.3.5",
+          "file_bytes": 75640
+        },
+        {
+          "path": "/usr/lib/libpthread.so.0",
+          "file_bytes": 14360
+        },
+        {
+          "path": "/usr/lib/libresolv.so.2",
+          "file_bytes": 67904
+        },
+        {
+          "path": "/usr/lib/librt.so.1",
+          "file_bytes": 14424
+        },
+        {
+          "path": "/usr/lib/libseccomp.so.2.6.0",
+          "file_bytes": 182288
+        },
+        {
+          "path": "/usr/lib/libsqlite3.so.3.54.0",
+          "file_bytes": 1697864
+        },
+        {
+          "path": "/usr/lib/libssh2.so.1.0.1",
+          "file_bytes": 317984
+        },
+        {
+          "path": "/usr/lib/libssl.so.3",
+          "file_bytes": 1015768
+        },
+        {
+          "path": "/usr/lib/libstdc++.so.6.0.36",
+          "file_bytes": 2939928
+        },
+        {
+          "path": "/usr/lib/libsystemd.so.0.45.0",
+          "file_bytes": 1340960
+        },
+        {
+          "path": "/usr/lib/libthai.so.0.3.2",
+          "file_bytes": 40000
+        },
+        {
+          "path": "/usr/lib/libtinysparql-3.0.so.0.1200.0",
+          "file_bytes": 875792
+        },
+        {
+          "path": "/usr/lib/libunistring.so.5.2.1",
+          "file_bytes": 1992752
+        },
+        {
+          "path": "/usr/lib/liburing.so.2.15",
+          "file_bytes": 25904
+        },
+        {
+          "path": "/usr/lib/libwayland-client.so.0.26.0",
+          "file_bytes": 60168
+        },
+        {
+          "path": "/usr/lib/libwayland-cursor.so.0.26.0",
+          "file_bytes": 31200
+        },
+        {
+          "path": "/usr/lib/libwayland-egl.so.1.26.0",
+          "file_bytes": 14136
+        },
+        {
+          "path": "/usr/lib/libxcb-render.so.0.0.0",
+          "file_bytes": 59368
+        },
+        {
+          "path": "/usr/lib/libxcb-shm.so.0.0.0",
+          "file_bytes": 14304
+        },
+        {
+          "path": "/usr/lib/libxcb.so.1.1.0",
+          "file_bytes": 169984
+        },
+        {
+          "path": "/usr/lib/libxkbcommon.so.0.13.2",
+          "file_bytes": 383144
+        },
+        {
+          "path": "/usr/lib/libxml2.so.16.1.4",
+          "file_bytes": 1326024
+        },
+        {
+          "path": "/usr/lib/libz.so.1.3.2",
+          "file_bytes": 108560
+        },
+        {
+          "path": "/usr/lib/libzstd.so.1.5.7",
+          "file_bytes": 939976
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqgif.so",
+          "file_bytes": 31048
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqico.so",
+          "file_bytes": 35144
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqjpeg.so",
+          "file_bytes": 51528
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqsvg.so",
+          "file_bytes": 26952
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so",
+          "file_bytes": 308328
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platforms/libqoffscreen.so",
+          "file_bytes": 112968
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platformthemes/libqgtk3.so",
+          "file_bytes": 220616
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/Basic/impl/libqtquickcontrols2basicstyleimplplugin.so",
+          "file_bytes": 18792
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/Basic/libqtquickcontrols2basicstyleplugin.so",
+          "file_bytes": 18784
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/libqtquickcontrols2plugin.so",
+          "file_bytes": 31064
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Dialogs/libqtquickdialogsplugin.so",
+          "file_bytes": 18776
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Layouts/libqquicklayoutsplugin.so",
+          "file_bytes": 18768
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Templates/libqtquicktemplates2plugin.so",
+          "file_bytes": 18776
+        }
+      ],
+      "mapped_shared_library_file_bytes": 323586091,
+      "errors": [],
+      "qt_platform": "offscreen",
+      "native_first_frame_ms": 83.0,
+      "first_frame_marker_observed": true,
+      "exit_code_after_termination": -15
+    },
+    {
+      "process_spawn_to_sample_ms": 1000.059,
+      "running_at_sample": true,
+      "processes": [
+        {
+          "pid": 157630,
+          "rss_bytes": 133414912,
+          "pss_bytes": 60398592
+        }
+      ],
+      "process_tree_rss_bytes": 133414912,
+      "process_tree_pss_bytes": 60398592,
+      "memory_complete": true,
+      "mapped_shared_libraries": [
+        {
+          "path": "/etc/ld.so.cache",
+          "file_bytes": 169827
+        },
+        {
+          "path": "/usr/lib/gio/modules/libdconfsettings.so",
+          "file_bytes": 59432
+        },
+        {
+          "path": "/usr/lib/gio/modules/libgvfsdbus.so",
+          "file_bytes": 203072
+        },
+        {
+          "path": "/usr/lib/gvfs/libgvfscommon.so",
+          "file_bytes": 243656
+        },
+        {
+          "path": "/usr/lib/ld-linux-x86-64.so.2",
+          "file_bytes": 263152
+        },
+        {
+          "path": "/usr/lib/libEGL.so.1.1.0",
+          "file_bytes": 67536
+        },
+        {
+          "path": "/usr/lib/libFcitx5Qt6DBusAddons.so.5.1.16",
+          "file_bytes": 385032
+        },
+        {
+          "path": "/usr/lib/libGLX.so.0.0.0",
+          "file_bytes": 133064
+        },
+        {
+          "path": "/usr/lib/libGLX_nvidia.so.615.78.08",
+          "file_bytes": 1211968
+        },
+        {
+          "path": "/usr/lib/libGLdispatch.so.0.0.0",
+          "file_bytes": 460896
+        },
+        {
+          "path": "/usr/lib/libOpenGL.so.0.0.0",
+          "file_bytes": 145432
+        },
+        {
+          "path": "/usr/lib/libQt6Core.so.6.12.0",
+          "file_bytes": 7078320
+        },
+        {
+          "path": "/usr/lib/libQt6DBus.so.6.12.0",
+          "file_bytes": 840704
+        },
+        {
+          "path": "/usr/lib/libQt6Gui.so.6.12.0",
+          "file_bytes": 9914880
+        },
+        {
+          "path": "/usr/lib/libQt6Network.so.6.12.0",
+          "file_bytes": 2067552
+        },
+        {
+          "path": "/usr/lib/libQt6OpenGL.so.6.12.0",
+          "file_bytes": 685952
+        },
+        {
+          "path": "/usr/lib/libQt6Qml.so.6.12.0",
+          "file_bytes": 6154368
+        },
+        {
+          "path": "/usr/lib/libQt6QmlMeta.so.6.12.0",
+          "file_bytes": 168192
+        },
+        {
+          "path": "/usr/lib/libQt6QmlModels.so.6.12.0",
+          "file_bytes": 1243008
+        },
+        {
+          "path": "/usr/lib/libQt6QmlWorkerScript.so.6.12.0",
+          "file_bytes": 85256
+        },
+        {
+          "path": "/usr/lib/libQt6Quick.so.6.12.0",
+          "file_bytes": 8015968
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2.so.6.12.0",
+          "file_bytes": 96904
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2Basic.so.6.12.0",
+          "file_bytes": 2895888
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2BasicStyleImpl.so.6.12.0",
+          "file_bytes": 110232
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2Impl.so.6.12.0",
+          "file_bytes": 385680
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2.so.6.12.0",
+          "file_bytes": 170760
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2QuickImpl.so.6.12.0",
+          "file_bytes": 4120208
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2Utils.so.6.12.0",
+          "file_bytes": 30992
+        },
+        {
+          "path": "/usr/lib/libQt6QuickLayouts.so.6.12.0",
+          "file_bytes": 364680
+        },
+        {
+          "path": "/usr/lib/libQt6QuickTemplates2.so.6.12.0",
+          "file_bytes": 2655240
+        },
+        {
+          "path": "/usr/lib/libQt6Svg.so.6.12.0",
+          "file_bytes": 678784
+        },
+        {
+          "path": "/usr/lib/libQt6WaylandClient.so.6.12.0",
+          "file_bytes": 1169128
+        },
+        {
+          "path": "/usr/lib/libQt6Widgets.so.6.12.0",
+          "file_bytes": 8012032
+        },
+        {
+          "path": "/usr/lib/libX11.so.6.4.0",
+          "file_bytes": 1378688
+        },
+        {
+          "path": "/usr/lib/libXau.so.6.0.0",
+          "file_bytes": 14232
+        },
+        {
+          "path": "/usr/lib/libXcomposite.so.1.0.0",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libXcursor.so.1.0.2",
+          "file_bytes": 47048
+        },
+        {
+          "path": "/usr/lib/libXdamage.so.1.1.0",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libXdmcp.so.6.0.0",
+          "file_bytes": 26488
+        },
+        {
+          "path": "/usr/lib/libXext.so.6.4.0",
+          "file_bytes": 76928
+        },
+        {
+          "path": "/usr/lib/libXfixes.so.3.1.0",
+          "file_bytes": 26432
+        },
+        {
+          "path": "/usr/lib/libXi.so.6.1.0",
+          "file_bytes": 79928
+        },
+        {
+          "path": "/usr/lib/libXinerama.so.1.0.0",
+          "file_bytes": 14328
+        },
+        {
+          "path": "/usr/lib/libXrandr.so.2.2.0",
+          "file_bytes": 47088
+        },
+        {
+          "path": "/usr/lib/libXrender.so.1.3.0",
+          "file_bytes": 43152
+        },
+        {
+          "path": "/usr/lib/libatk-1.0.so.0.26210.1",
+          "file_bytes": 157656
+        },
+        {
+          "path": "/usr/lib/libatk-bridge-2.0.so.0.0.0",
+          "file_bytes": 244552
+        },
+        {
+          "path": "/usr/lib/libatspi.so.0.0.1",
+          "file_bytes": 244048
+        },
+        {
+          "path": "/usr/lib/libb2.so.1.0.4",
+          "file_bytes": 120960
+        },
+        {
+          "path": "/usr/lib/libblkid.so.1.1.0",
+          "file_bytes": 256896
+        },
+        {
+          "path": "/usr/lib/libbrotlicommon.so.1.2.0",
+          "file_bytes": 141264
+        },
+        {
+          "path": "/usr/lib/libbrotlidec.so.1.2.0",
+          "file_bytes": 55168
+        },
+        {
+          "path": "/usr/lib/libbrotlienc.so.1.2.0",
+          "file_bytes": 780768
+        },
+        {
+          "path": "/usr/lib/libbz2.so.1.0.8",
+          "file_bytes": 74720
+        },
+        {
+          "path": "/usr/lib/libc.so.6",
+          "file_bytes": 2215072
+        },
+        {
+          "path": "/usr/lib/libcairo-gobject.so.2.11806.6",
+          "file_bytes": 34616
+        },
+        {
+          "path": "/usr/lib/libcairo.so.2.11806.6",
+          "file_bytes": 1342184
+        },
+        {
+          "path": "/usr/lib/libcloudproviders.so.0.4.1",
+          "file_bytes": 96304
+        },
+        {
+          "path": "/usr/lib/libcom_err.so.2.1",
+          "file_bytes": 18376
+        },
+        {
+          "path": "/usr/lib/libcrypto.so.3",
+          "file_bytes": 5926392
+        },
+        {
+          "path": "/usr/lib/libcurl.so.4.8.0",
+          "file_bytes": 1091176
+        },
+        {
+          "path": "/usr/lib/libdatrie.so.1.4.1",
+          "file_bytes": 30672
+        },
+        {
+          "path": "/usr/lib/libdbus-1.so.3.38.3",
+          "file_bytes": 334008
+        },
+        {
+          "path": "/usr/lib/libdl.so.2",
+          "file_bytes": 14352
+        },
+        {
+          "path": "/usr/lib/libdouble-conversion.so.3.4.0",
+          "file_bytes": 92208
+        },
+        {
+          "path": "/usr/lib/libduktape.so.207.20700",
+          "file_bytes": 309200
+        },
+        {
+          "path": "/usr/lib/libepoxy.so.0.0.0",
+          "file_bytes": 1099376
+        },
+        {
+          "path": "/usr/lib/libexpat.so.1.13.0",
+          "file_bytes": 190408
+        },
+        {
+          "path": "/usr/lib/libffi.so.8.5.0",
+          "file_bytes": 51432
+        },
+        {
+          "path": "/usr/lib/libfontconfig.so.1.17.0",
+          "file_bytes": 501720
+        },
+        {
+          "path": "/usr/lib/libfreetype.so.6.20.7",
+          "file_bytes": 931784
+        },
+        {
+          "path": "/usr/lib/libfribidi.so.0.4.0",
+          "file_bytes": 137272
+        },
+        {
+          "path": "/usr/lib/libgcc_s.so.1",
+          "file_bytes": 182512
+        },
+        {
+          "path": "/usr/lib/libgdk-3.so.0.2420.32",
+          "file_bytes": 993584
+        },
+        {
+          "path": "/usr/lib/libgdk_pixbuf-2.0.so.0.4400.8",
+          "file_bytes": 240824
+        },
+        {
+          "path": "/usr/lib/libgio-2.0.so.0.9000.1",
+          "file_bytes": 1969504
+        },
+        {
+          "path": "/usr/lib/libglib-2.0.so.0.9000.1",
+          "file_bytes": 1457576
+        },
+        {
+          "path": "/usr/lib/libglycin-2.so.0",
+          "file_bytes": 4629488
+        },
+        {
+          "path": "/usr/lib/libgmodule-2.0.so.0.9000.1",
+          "file_bytes": 22464
+        },
+        {
+          "path": "/usr/lib/libgobject-2.0.so.0.9000.1",
+          "file_bytes": 399456
+        },
+        {
+          "path": "/usr/lib/libgomp.so.1.0.0",
+          "file_bytes": 363560
+        },
+        {
+          "path": "/usr/lib/libgraphite2.so.3.3.1",
+          "file_bytes": 137160
+        },
+        {
+          "path": "/usr/lib/libgssapi_krb5.so.2.2",
+          "file_bytes": 360736
+        },
+        {
+          "path": "/usr/lib/libgtk-3.so.0.2420.32",
+          "file_bytes": 7550296
+        },
+        {
+          "path": "/usr/lib/libharfbuzz.so.0.61460.0",
+          "file_bytes": 1351824
+        },
+        {
+          "path": "/usr/lib/libicudata.so.78.3",
+          "file_bytes": 33112920
+        },
+        {
+          "path": "/usr/lib/libicui18n.so.78.3",
+          "file_bytes": 3721776
+        },
+        {
+          "path": "/usr/lib/libicuuc.so.78.3",
+          "file_bytes": 2144304
+        },
+        {
+          "path": "/usr/lib/libidn2.so.0.4.0",
+          "file_bytes": 133064
+        },
+        {
+          "path": "/usr/lib/libjpeg.so.8.3.2",
+          "file_bytes": 686104
+        },
+        {
+          "path": "/usr/lib/libjson-glib-1.0.so.0.1000.8",
+          "file_bytes": 170016
+        },
+        {
+          "path": "/usr/lib/libk5crypto.so.3.1",
+          "file_bytes": 182320
+        },
+        {
+          "path": "/usr/lib/libkeyutils.so.1.10",
+          "file_bytes": 22480
+        },
+        {
+          "path": "/usr/lib/libkrb5.so.3.3",
+          "file_bytes": 845896
+        },
+        {
+          "path": "/usr/lib/libkrb5support.so.0.1",
+          "file_bytes": 55544
+        },
+        {
+          "path": "/usr/lib/libm.so.6",
+          "file_bytes": 1268336
+        },
+        {
+          "path": "/usr/lib/libmd4c.so.0.6.0",
+          "file_bytes": 96200
+        },
+        {
+          "path": "/usr/lib/libmount.so.1.1.0",
+          "file_bytes": 379488
+        },
+        {
+          "path": "/usr/lib/libnghttp2.so.14.29.5",
+          "file_bytes": 165928
+        },
+        {
+          "path": "/usr/lib/libnghttp3.so.9.9.0",
+          "file_bytes": 160768
+        },
+        {
+          "path": "/usr/lib/libngtcp2.so.16.11.0",
+          "file_bytes": 374768
+        },
+        {
+          "path": "/usr/lib/libngtcp2_crypto_ossl.so.0.3.1",
+          "file_bytes": 47064
+        },
+        {
+          "path": "/usr/lib/libnvidia-glcore.so.615.78.08",
+          "file_bytes": 41902312
+        },
+        {
+          "path": "/usr/lib/libnvidia-glsi.so.615.78.08",
+          "file_bytes": 603080
+        },
+        {
+          "path": "/usr/lib/libnvidia-gpucomp.so.615.78.08",
+          "file_bytes": 121572536
+        },
+        {
+          "path": "/usr/lib/libnvidia-tls.so.615.78.08",
+          "file_bytes": 18632
+        },
+        {
+          "path": "/usr/lib/libpango-1.0.so.0.5800.2",
+          "file_bytes": 450312
+        },
+        {
+          "path": "/usr/lib/libpangocairo-1.0.so.0.5800.2",
+          "file_bytes": 71688
+        },
+        {
+          "path": "/usr/lib/libpangoft2-1.0.so.0.5800.2",
+          "file_bytes": 124888
+        },
+        {
+          "path": "/usr/lib/libpcre2-16.so.0.16.1",
+          "file_bytes": 674088
+        },
+        {
+          "path": "/usr/lib/libpcre2-8.so.0.16.1",
+          "file_bytes": 727336
+        },
+        {
+          "path": "/usr/lib/libpixman-1.so.0.46.4",
+          "file_bytes": 714800
+        },
+        {
+          "path": "/usr/lib/libpng16.so.16.59.0",
+          "file_bytes": 243736
+        },
+        {
+          "path": "/usr/lib/libproxy.so.0.5.12",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libproxy/libpxbackend-1.0.so",
+          "file_bytes": 59432
+        },
+        {
+          "path": "/usr/lib/libpsl.so.5.3.5",
+          "file_bytes": 75640
+        },
+        {
+          "path": "/usr/lib/libpthread.so.0",
+          "file_bytes": 14360
+        },
+        {
+          "path": "/usr/lib/libresolv.so.2",
+          "file_bytes": 67904
+        },
+        {
+          "path": "/usr/lib/librt.so.1",
+          "file_bytes": 14424
+        },
+        {
+          "path": "/usr/lib/libseccomp.so.2.6.0",
+          "file_bytes": 182288
+        },
+        {
+          "path": "/usr/lib/libsqlite3.so.3.54.0",
+          "file_bytes": 1697864
+        },
+        {
+          "path": "/usr/lib/libssh2.so.1.0.1",
+          "file_bytes": 317984
+        },
+        {
+          "path": "/usr/lib/libssl.so.3",
+          "file_bytes": 1015768
+        },
+        {
+          "path": "/usr/lib/libstdc++.so.6.0.36",
+          "file_bytes": 2939928
+        },
+        {
+          "path": "/usr/lib/libsystemd.so.0.45.0",
+          "file_bytes": 1340960
+        },
+        {
+          "path": "/usr/lib/libthai.so.0.3.2",
+          "file_bytes": 40000
+        },
+        {
+          "path": "/usr/lib/libtinysparql-3.0.so.0.1200.0",
+          "file_bytes": 875792
+        },
+        {
+          "path": "/usr/lib/libunistring.so.5.2.1",
+          "file_bytes": 1992752
+        },
+        {
+          "path": "/usr/lib/liburing.so.2.15",
+          "file_bytes": 25904
+        },
+        {
+          "path": "/usr/lib/libwayland-client.so.0.26.0",
+          "file_bytes": 60168
+        },
+        {
+          "path": "/usr/lib/libwayland-cursor.so.0.26.0",
+          "file_bytes": 31200
+        },
+        {
+          "path": "/usr/lib/libwayland-egl.so.1.26.0",
+          "file_bytes": 14136
+        },
+        {
+          "path": "/usr/lib/libxcb-render.so.0.0.0",
+          "file_bytes": 59368
+        },
+        {
+          "path": "/usr/lib/libxcb-shm.so.0.0.0",
+          "file_bytes": 14304
+        },
+        {
+          "path": "/usr/lib/libxcb.so.1.1.0",
+          "file_bytes": 169984
+        },
+        {
+          "path": "/usr/lib/libxkbcommon.so.0.13.2",
+          "file_bytes": 383144
+        },
+        {
+          "path": "/usr/lib/libxml2.so.16.1.4",
+          "file_bytes": 1326024
+        },
+        {
+          "path": "/usr/lib/libz.so.1.3.2",
+          "file_bytes": 108560
+        },
+        {
+          "path": "/usr/lib/libzstd.so.1.5.7",
+          "file_bytes": 939976
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqgif.so",
+          "file_bytes": 31048
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqico.so",
+          "file_bytes": 35144
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqjpeg.so",
+          "file_bytes": 51528
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqsvg.so",
+          "file_bytes": 26952
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so",
+          "file_bytes": 308328
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platforms/libqoffscreen.so",
+          "file_bytes": 112968
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platformthemes/libqgtk3.so",
+          "file_bytes": 220616
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/Basic/impl/libqtquickcontrols2basicstyleimplplugin.so",
+          "file_bytes": 18792
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/Basic/libqtquickcontrols2basicstyleplugin.so",
+          "file_bytes": 18784
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/libqtquickcontrols2plugin.so",
+          "file_bytes": 31064
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Dialogs/libqtquickdialogsplugin.so",
+          "file_bytes": 18776
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Layouts/libqquicklayoutsplugin.so",
+          "file_bytes": 18768
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Templates/libqtquicktemplates2plugin.so",
+          "file_bytes": 18776
+        }
+      ],
+      "mapped_shared_library_file_bytes": 323586091,
+      "errors": [],
+      "qt_platform": "offscreen",
+      "native_first_frame_ms": 82.0,
+      "first_frame_marker_observed": true,
+      "exit_code_after_termination": -15
+    },
+    {
+      "process_spawn_to_sample_ms": 1000.057,
+      "running_at_sample": true,
+      "processes": [
+        {
+          "pid": 157641,
+          "rss_bytes": 133144576,
+          "pss_bytes": 60101632
+        }
+      ],
+      "process_tree_rss_bytes": 133144576,
+      "process_tree_pss_bytes": 60101632,
+      "memory_complete": true,
+      "mapped_shared_libraries": [
+        {
+          "path": "/etc/ld.so.cache",
+          "file_bytes": 169827
+        },
+        {
+          "path": "/usr/lib/gio/modules/libdconfsettings.so",
+          "file_bytes": 59432
+        },
+        {
+          "path": "/usr/lib/gio/modules/libgvfsdbus.so",
+          "file_bytes": 203072
+        },
+        {
+          "path": "/usr/lib/gvfs/libgvfscommon.so",
+          "file_bytes": 243656
+        },
+        {
+          "path": "/usr/lib/ld-linux-x86-64.so.2",
+          "file_bytes": 263152
+        },
+        {
+          "path": "/usr/lib/libEGL.so.1.1.0",
+          "file_bytes": 67536
+        },
+        {
+          "path": "/usr/lib/libFcitx5Qt6DBusAddons.so.5.1.16",
+          "file_bytes": 385032
+        },
+        {
+          "path": "/usr/lib/libGLX.so.0.0.0",
+          "file_bytes": 133064
+        },
+        {
+          "path": "/usr/lib/libGLX_nvidia.so.615.78.08",
+          "file_bytes": 1211968
+        },
+        {
+          "path": "/usr/lib/libGLdispatch.so.0.0.0",
+          "file_bytes": 460896
+        },
+        {
+          "path": "/usr/lib/libOpenGL.so.0.0.0",
+          "file_bytes": 145432
+        },
+        {
+          "path": "/usr/lib/libQt6Core.so.6.12.0",
+          "file_bytes": 7078320
+        },
+        {
+          "path": "/usr/lib/libQt6DBus.so.6.12.0",
+          "file_bytes": 840704
+        },
+        {
+          "path": "/usr/lib/libQt6Gui.so.6.12.0",
+          "file_bytes": 9914880
+        },
+        {
+          "path": "/usr/lib/libQt6Network.so.6.12.0",
+          "file_bytes": 2067552
+        },
+        {
+          "path": "/usr/lib/libQt6OpenGL.so.6.12.0",
+          "file_bytes": 685952
+        },
+        {
+          "path": "/usr/lib/libQt6Qml.so.6.12.0",
+          "file_bytes": 6154368
+        },
+        {
+          "path": "/usr/lib/libQt6QmlMeta.so.6.12.0",
+          "file_bytes": 168192
+        },
+        {
+          "path": "/usr/lib/libQt6QmlModels.so.6.12.0",
+          "file_bytes": 1243008
+        },
+        {
+          "path": "/usr/lib/libQt6QmlWorkerScript.so.6.12.0",
+          "file_bytes": 85256
+        },
+        {
+          "path": "/usr/lib/libQt6Quick.so.6.12.0",
+          "file_bytes": 8015968
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2.so.6.12.0",
+          "file_bytes": 96904
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2Basic.so.6.12.0",
+          "file_bytes": 2895888
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2BasicStyleImpl.so.6.12.0",
+          "file_bytes": 110232
+        },
+        {
+          "path": "/usr/lib/libQt6QuickControls2Impl.so.6.12.0",
+          "file_bytes": 385680
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2.so.6.12.0",
+          "file_bytes": 170760
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2QuickImpl.so.6.12.0",
+          "file_bytes": 4120208
+        },
+        {
+          "path": "/usr/lib/libQt6QuickDialogs2Utils.so.6.12.0",
+          "file_bytes": 30992
+        },
+        {
+          "path": "/usr/lib/libQt6QuickLayouts.so.6.12.0",
+          "file_bytes": 364680
+        },
+        {
+          "path": "/usr/lib/libQt6QuickTemplates2.so.6.12.0",
+          "file_bytes": 2655240
+        },
+        {
+          "path": "/usr/lib/libQt6Svg.so.6.12.0",
+          "file_bytes": 678784
+        },
+        {
+          "path": "/usr/lib/libQt6WaylandClient.so.6.12.0",
+          "file_bytes": 1169128
+        },
+        {
+          "path": "/usr/lib/libQt6Widgets.so.6.12.0",
+          "file_bytes": 8012032
+        },
+        {
+          "path": "/usr/lib/libX11.so.6.4.0",
+          "file_bytes": 1378688
+        },
+        {
+          "path": "/usr/lib/libXau.so.6.0.0",
+          "file_bytes": 14232
+        },
+        {
+          "path": "/usr/lib/libXcomposite.so.1.0.0",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libXcursor.so.1.0.2",
+          "file_bytes": 47048
+        },
+        {
+          "path": "/usr/lib/libXdamage.so.1.1.0",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libXdmcp.so.6.0.0",
+          "file_bytes": 26488
+        },
+        {
+          "path": "/usr/lib/libXext.so.6.4.0",
+          "file_bytes": 76928
+        },
+        {
+          "path": "/usr/lib/libXfixes.so.3.1.0",
+          "file_bytes": 26432
+        },
+        {
+          "path": "/usr/lib/libXi.so.6.1.0",
+          "file_bytes": 79928
+        },
+        {
+          "path": "/usr/lib/libXinerama.so.1.0.0",
+          "file_bytes": 14328
+        },
+        {
+          "path": "/usr/lib/libXrandr.so.2.2.0",
+          "file_bytes": 47088
+        },
+        {
+          "path": "/usr/lib/libXrender.so.1.3.0",
+          "file_bytes": 43152
+        },
+        {
+          "path": "/usr/lib/libatk-1.0.so.0.26210.1",
+          "file_bytes": 157656
+        },
+        {
+          "path": "/usr/lib/libatk-bridge-2.0.so.0.0.0",
+          "file_bytes": 244552
+        },
+        {
+          "path": "/usr/lib/libatspi.so.0.0.1",
+          "file_bytes": 244048
+        },
+        {
+          "path": "/usr/lib/libb2.so.1.0.4",
+          "file_bytes": 120960
+        },
+        {
+          "path": "/usr/lib/libblkid.so.1.1.0",
+          "file_bytes": 256896
+        },
+        {
+          "path": "/usr/lib/libbrotlicommon.so.1.2.0",
+          "file_bytes": 141264
+        },
+        {
+          "path": "/usr/lib/libbrotlidec.so.1.2.0",
+          "file_bytes": 55168
+        },
+        {
+          "path": "/usr/lib/libbrotlienc.so.1.2.0",
+          "file_bytes": 780768
+        },
+        {
+          "path": "/usr/lib/libbz2.so.1.0.8",
+          "file_bytes": 74720
+        },
+        {
+          "path": "/usr/lib/libc.so.6",
+          "file_bytes": 2215072
+        },
+        {
+          "path": "/usr/lib/libcairo-gobject.so.2.11806.6",
+          "file_bytes": 34616
+        },
+        {
+          "path": "/usr/lib/libcairo.so.2.11806.6",
+          "file_bytes": 1342184
+        },
+        {
+          "path": "/usr/lib/libcloudproviders.so.0.4.1",
+          "file_bytes": 96304
+        },
+        {
+          "path": "/usr/lib/libcom_err.so.2.1",
+          "file_bytes": 18376
+        },
+        {
+          "path": "/usr/lib/libcrypto.so.3",
+          "file_bytes": 5926392
+        },
+        {
+          "path": "/usr/lib/libcurl.so.4.8.0",
+          "file_bytes": 1091176
+        },
+        {
+          "path": "/usr/lib/libdatrie.so.1.4.1",
+          "file_bytes": 30672
+        },
+        {
+          "path": "/usr/lib/libdbus-1.so.3.38.3",
+          "file_bytes": 334008
+        },
+        {
+          "path": "/usr/lib/libdl.so.2",
+          "file_bytes": 14352
+        },
+        {
+          "path": "/usr/lib/libdouble-conversion.so.3.4.0",
+          "file_bytes": 92208
+        },
+        {
+          "path": "/usr/lib/libduktape.so.207.20700",
+          "file_bytes": 309200
+        },
+        {
+          "path": "/usr/lib/libepoxy.so.0.0.0",
+          "file_bytes": 1099376
+        },
+        {
+          "path": "/usr/lib/libexpat.so.1.13.0",
+          "file_bytes": 190408
+        },
+        {
+          "path": "/usr/lib/libffi.so.8.5.0",
+          "file_bytes": 51432
+        },
+        {
+          "path": "/usr/lib/libfontconfig.so.1.17.0",
+          "file_bytes": 501720
+        },
+        {
+          "path": "/usr/lib/libfreetype.so.6.20.7",
+          "file_bytes": 931784
+        },
+        {
+          "path": "/usr/lib/libfribidi.so.0.4.0",
+          "file_bytes": 137272
+        },
+        {
+          "path": "/usr/lib/libgcc_s.so.1",
+          "file_bytes": 182512
+        },
+        {
+          "path": "/usr/lib/libgdk-3.so.0.2420.32",
+          "file_bytes": 993584
+        },
+        {
+          "path": "/usr/lib/libgdk_pixbuf-2.0.so.0.4400.8",
+          "file_bytes": 240824
+        },
+        {
+          "path": "/usr/lib/libgio-2.0.so.0.9000.1",
+          "file_bytes": 1969504
+        },
+        {
+          "path": "/usr/lib/libglib-2.0.so.0.9000.1",
+          "file_bytes": 1457576
+        },
+        {
+          "path": "/usr/lib/libglycin-2.so.0",
+          "file_bytes": 4629488
+        },
+        {
+          "path": "/usr/lib/libgmodule-2.0.so.0.9000.1",
+          "file_bytes": 22464
+        },
+        {
+          "path": "/usr/lib/libgobject-2.0.so.0.9000.1",
+          "file_bytes": 399456
+        },
+        {
+          "path": "/usr/lib/libgomp.so.1.0.0",
+          "file_bytes": 363560
+        },
+        {
+          "path": "/usr/lib/libgraphite2.so.3.3.1",
+          "file_bytes": 137160
+        },
+        {
+          "path": "/usr/lib/libgssapi_krb5.so.2.2",
+          "file_bytes": 360736
+        },
+        {
+          "path": "/usr/lib/libgtk-3.so.0.2420.32",
+          "file_bytes": 7550296
+        },
+        {
+          "path": "/usr/lib/libharfbuzz.so.0.61460.0",
+          "file_bytes": 1351824
+        },
+        {
+          "path": "/usr/lib/libicudata.so.78.3",
+          "file_bytes": 33112920
+        },
+        {
+          "path": "/usr/lib/libicui18n.so.78.3",
+          "file_bytes": 3721776
+        },
+        {
+          "path": "/usr/lib/libicuuc.so.78.3",
+          "file_bytes": 2144304
+        },
+        {
+          "path": "/usr/lib/libidn2.so.0.4.0",
+          "file_bytes": 133064
+        },
+        {
+          "path": "/usr/lib/libjpeg.so.8.3.2",
+          "file_bytes": 686104
+        },
+        {
+          "path": "/usr/lib/libjson-glib-1.0.so.0.1000.8",
+          "file_bytes": 170016
+        },
+        {
+          "path": "/usr/lib/libk5crypto.so.3.1",
+          "file_bytes": 182320
+        },
+        {
+          "path": "/usr/lib/libkeyutils.so.1.10",
+          "file_bytes": 22480
+        },
+        {
+          "path": "/usr/lib/libkrb5.so.3.3",
+          "file_bytes": 845896
+        },
+        {
+          "path": "/usr/lib/libkrb5support.so.0.1",
+          "file_bytes": 55544
+        },
+        {
+          "path": "/usr/lib/libm.so.6",
+          "file_bytes": 1268336
+        },
+        {
+          "path": "/usr/lib/libmd4c.so.0.6.0",
+          "file_bytes": 96200
+        },
+        {
+          "path": "/usr/lib/libmount.so.1.1.0",
+          "file_bytes": 379488
+        },
+        {
+          "path": "/usr/lib/libnghttp2.so.14.29.5",
+          "file_bytes": 165928
+        },
+        {
+          "path": "/usr/lib/libnghttp3.so.9.9.0",
+          "file_bytes": 160768
+        },
+        {
+          "path": "/usr/lib/libngtcp2.so.16.11.0",
+          "file_bytes": 374768
+        },
+        {
+          "path": "/usr/lib/libngtcp2_crypto_ossl.so.0.3.1",
+          "file_bytes": 47064
+        },
+        {
+          "path": "/usr/lib/libnvidia-glcore.so.615.78.08",
+          "file_bytes": 41902312
+        },
+        {
+          "path": "/usr/lib/libnvidia-glsi.so.615.78.08",
+          "file_bytes": 603080
+        },
+        {
+          "path": "/usr/lib/libnvidia-gpucomp.so.615.78.08",
+          "file_bytes": 121572536
+        },
+        {
+          "path": "/usr/lib/libnvidia-tls.so.615.78.08",
+          "file_bytes": 18632
+        },
+        {
+          "path": "/usr/lib/libpango-1.0.so.0.5800.2",
+          "file_bytes": 450312
+        },
+        {
+          "path": "/usr/lib/libpangocairo-1.0.so.0.5800.2",
+          "file_bytes": 71688
+        },
+        {
+          "path": "/usr/lib/libpangoft2-1.0.so.0.5800.2",
+          "file_bytes": 124888
+        },
+        {
+          "path": "/usr/lib/libpcre2-16.so.0.16.1",
+          "file_bytes": 674088
+        },
+        {
+          "path": "/usr/lib/libpcre2-8.so.0.16.1",
+          "file_bytes": 727336
+        },
+        {
+          "path": "/usr/lib/libpixman-1.so.0.46.4",
+          "file_bytes": 714800
+        },
+        {
+          "path": "/usr/lib/libpng16.so.16.59.0",
+          "file_bytes": 243736
+        },
+        {
+          "path": "/usr/lib/libproxy.so.0.5.12",
+          "file_bytes": 14208
+        },
+        {
+          "path": "/usr/lib/libproxy/libpxbackend-1.0.so",
+          "file_bytes": 59432
+        },
+        {
+          "path": "/usr/lib/libpsl.so.5.3.5",
+          "file_bytes": 75640
+        },
+        {
+          "path": "/usr/lib/libpthread.so.0",
+          "file_bytes": 14360
+        },
+        {
+          "path": "/usr/lib/libresolv.so.2",
+          "file_bytes": 67904
+        },
+        {
+          "path": "/usr/lib/librt.so.1",
+          "file_bytes": 14424
+        },
+        {
+          "path": "/usr/lib/libseccomp.so.2.6.0",
+          "file_bytes": 182288
+        },
+        {
+          "path": "/usr/lib/libsqlite3.so.3.54.0",
+          "file_bytes": 1697864
+        },
+        {
+          "path": "/usr/lib/libssh2.so.1.0.1",
+          "file_bytes": 317984
+        },
+        {
+          "path": "/usr/lib/libssl.so.3",
+          "file_bytes": 1015768
+        },
+        {
+          "path": "/usr/lib/libstdc++.so.6.0.36",
+          "file_bytes": 2939928
+        },
+        {
+          "path": "/usr/lib/libsystemd.so.0.45.0",
+          "file_bytes": 1340960
+        },
+        {
+          "path": "/usr/lib/libthai.so.0.3.2",
+          "file_bytes": 40000
+        },
+        {
+          "path": "/usr/lib/libtinysparql-3.0.so.0.1200.0",
+          "file_bytes": 875792
+        },
+        {
+          "path": "/usr/lib/libunistring.so.5.2.1",
+          "file_bytes": 1992752
+        },
+        {
+          "path": "/usr/lib/liburing.so.2.15",
+          "file_bytes": 25904
+        },
+        {
+          "path": "/usr/lib/libwayland-client.so.0.26.0",
+          "file_bytes": 60168
+        },
+        {
+          "path": "/usr/lib/libwayland-cursor.so.0.26.0",
+          "file_bytes": 31200
+        },
+        {
+          "path": "/usr/lib/libwayland-egl.so.1.26.0",
+          "file_bytes": 14136
+        },
+        {
+          "path": "/usr/lib/libxcb-render.so.0.0.0",
+          "file_bytes": 59368
+        },
+        {
+          "path": "/usr/lib/libxcb-shm.so.0.0.0",
+          "file_bytes": 14304
+        },
+        {
+          "path": "/usr/lib/libxcb.so.1.1.0",
+          "file_bytes": 169984
+        },
+        {
+          "path": "/usr/lib/libxkbcommon.so.0.13.2",
+          "file_bytes": 383144
+        },
+        {
+          "path": "/usr/lib/libxml2.so.16.1.4",
+          "file_bytes": 1326024
+        },
+        {
+          "path": "/usr/lib/libz.so.1.3.2",
+          "file_bytes": 108560
+        },
+        {
+          "path": "/usr/lib/libzstd.so.1.5.7",
+          "file_bytes": 939976
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqgif.so",
+          "file_bytes": 31048
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqico.so",
+          "file_bytes": 35144
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqjpeg.so",
+          "file_bytes": 51528
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/imageformats/libqsvg.so",
+          "file_bytes": 26952
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so",
+          "file_bytes": 308328
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platforms/libqoffscreen.so",
+          "file_bytes": 112968
+        },
+        {
+          "path": "/usr/lib/qt6/plugins/platformthemes/libqgtk3.so",
+          "file_bytes": 220616
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/Basic/impl/libqtquickcontrols2basicstyleimplplugin.so",
+          "file_bytes": 18792
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/Basic/libqtquickcontrols2basicstyleplugin.so",
+          "file_bytes": 18784
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Controls/libqtquickcontrols2plugin.so",
+          "file_bytes": 31064
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Dialogs/libqtquickdialogsplugin.so",
+          "file_bytes": 18776
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Layouts/libqquicklayoutsplugin.so",
+          "file_bytes": 18768
+        },
+        {
+          "path": "/usr/lib/qt6/qml/QtQuick/Templates/libqtquicktemplates2plugin.so",
+          "file_bytes": 18776
+        }
+      ],
+      "mapped_shared_library_file_bytes": 323586091,
+      "errors": [],
+      "qt_platform": "offscreen",
+      "native_first_frame_ms": 82.0,
+      "first_frame_marker_observed": true,
+      "exit_code_after_termination": -15
+    }
+  ]
+}

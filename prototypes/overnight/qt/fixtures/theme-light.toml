@@ -1,0 +1,6 @@
+mode = "light"
+background = "#f5f1e9"
+foreground = "#302e2a"
+accent = "#607d72"
+selection = "#d6e3db"
+selection_foreground = "#202923"
