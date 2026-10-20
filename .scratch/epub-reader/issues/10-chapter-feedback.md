@@ -33,7 +33,9 @@ Self-reported understanding is subjective feedback, not a measured comprehension
 
 Branch: `prototype/content-review`
 
-Commit: `480a79c4a31f7858415f920a79f0835651045c37`
+Latest commit: `395217e0e09c1f5faee5460be5d49dce19addb21`
+
+Original review commit: `480a79c4a31f7858415f920a79f0835651045c37`
 
 Worktree: `/home/strgenix/speedreading-prototypes/content-review`
 
@@ -46,3 +48,5 @@ Worktree: `/home/strgenix/speedreading-prototypes/content-review`
 2026-10-20: User authorized both feedback and rendering prototypes for review. Implemented agreed questions, skip/continue, persistent disable, saved feedback, export, and an optional 25 WPM suggestion requiring explicit acceptance. The step size and suggestion rule are experimental, not user-approved decisions. Preview responses are labelled separately. Feedback retains pace changes and source endpoints; no comprehension score is inferred.
 
 Browser checks confirmed accepted suggestions and responses persist, skipping stores no answers, disabling survives reload, and the dialog fits desktop and narrow screens. Continue begins the next chapter; disabled prompts still leave a chapter-boundary pause. Keep this ticket claimed pending user review of the interaction, suggestion rule, and storage choices.
+
+2026-10-20, user review correction: Title pages are not chapters and must not trigger chapter feedback. The revised prototype prompts only for identified chapters; front matter can advance without a check-in. The explicit feedback preview moves from front matter to the first identified chapter. Verified both title playback and preview behavior in Chromium.

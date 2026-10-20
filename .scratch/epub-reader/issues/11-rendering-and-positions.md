@@ -29,7 +29,9 @@ Consult prototype. Keep user book text in ignored local assets. This experiment 
 
 Branch: `prototype/content-review`
 
-Commit: `480a79c4a31f7858415f920a79f0835651045c37`
+Latest commit: `395217e0e09c1f5faee5460be5d49dce19addb21`
+
+Original review commit: `480a79c4a31f7858415f920a79f0835651045c37`
 
 Worktree: `/home/strgenix/speedreading-prototypes/content-review`
 
@@ -44,3 +46,7 @@ Worktree: `/home/strgenix/speedreading-prototypes/content-review`
 Verified all 189,147 extracted word pieces from the supplied EPUB against original XML document/node/offset/length locations. The extraction produced 84 spine sections, 85 image occurrences, 1,010 italic spans, and 14 bold spans. These counts describe this book only. Browser checks exercised default note skipping, automatic note return, interruptions, exact split-compound restoration, book switching, stopped restart, and an invalid upload retaining the active book without page JavaScript exceptions. Changed fingerprints produce an explicit chapter-start fallback.
 
 Still requires user review and a broader EPUB corpus. Known limits include a restricted CSS subset, spine-item chapter boundaries, semantic-only note identification, inline-markup word fragmentation, and all images pausing even when decorative. Source locations are revision-specific XML paths, not EPUB CFI. Arbitrary SVG, tables, and media are not rendered; fixed-layout books are rejected. Keep the ticket claimed; this evidence does not close the production rendering/location proof obligation.
+
+2026-10-20, user review: A title page is not a chapter. Conventional reading should support Left/Right Arrow to flip through pages. Revised the prototype to classify front matter separately, remove spine-index chapter numbering from the contents selector, and paginate conventional text into screen-sized pages. Buttons and arrow keys traverse pages and section boundaries; form fields retain arrow behavior. Page turns save their first source piece, so reopening restores the page with playback stopped. Font/window changes repaginate around the selected source.
+
+Browser verification confirmed title-page traversal without feedback, forward/back navigation within long chapters and across sections, saved-page restoration, and preserved source location after resize, without JavaScript exceptions. Chapter classification still uses limited semantics/navigation heuristics and needs broader EPUB validation.

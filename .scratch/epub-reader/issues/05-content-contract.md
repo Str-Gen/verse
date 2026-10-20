@@ -35,3 +35,5 @@ Use consistent, reader-controlled typography like Omawrite while preserving head
 Do not follow footnote markers by default. With following enabled, play the note and automatically resume the main text after its marker. Include a chapter list and Open File action; drag-and-drop is optional. Remember positions per book. On launch, reopen the last book at its saved position in conventional view with playback stopped.
 
 Show clear placeholders for unsupported content and pause playback there. Explain opening failures and retain the current book. These user-confirmed behaviors settle the content contract; rendering, note detection, and position recovery still require technical proof in a dedicated prototype.
+
+2026-10-20, user refinement: Distinguish title pages from chapters. Conventional reading must allow Left/Right Arrow page browsing through the book. The rendering prototype implements reflowed screen pages, including navigation across section boundaries.
