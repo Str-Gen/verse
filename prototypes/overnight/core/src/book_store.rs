@@ -350,29 +350,75 @@ impl DiskBook {
             let mut block: Block = self.read(&path)?;
             let original = std::mem::take(&mut block.runs);
             let pieces: Vec<_> = book.pieces.iter().filter(|p| p.block_id == id).collect();
+            let clipped_start = start > 0 && self.piece(start - 1)?.block_id == id;
+            let clipped_end = end < self.total && self.piece(end)?.block_id == id;
             let visible: Vec<_> = original
                 .iter()
                 .enumerate()
                 .filter_map(|(i, run)| {
-                    (original.len() <= 8
-                        || run.sources.iter().any(|r| {
+                    run.sources
+                        .iter()
+                        .any(|r| {
                             pieces
                                 .iter()
                                 .any(|p| p.sources.iter().any(|s| overlaps(r, s)))
-                        }))
-                    .then_some(i)
+                        })
+                        .then_some(i)
                 })
                 .collect();
-            if let (Some(first), Some(last)) = (visible.first(), visible.last()) {
-                for i in first.saturating_sub(1)
-                    ..=last.saturating_add(1).min(original.len().saturating_sub(1))
-                {
+            let first = if clipped_start {
+                visible.first().copied()
+            } else {
+                (!original.is_empty()).then_some(0)
+            };
+            let last = if clipped_end {
+                visible.last().copied()
+            } else {
+                original.len().checked_sub(1)
+            };
+            if let (Some(first), Some(last)) = (first, last) {
+                for i in first..=last {
                     let run_path = self.root.join("runs").join(key(&format!("{id}:{i}")));
                     context_bytes = context_bytes.saturating_add(fs::metadata(&run_path)?.len());
                     if context_bytes > MAX_CONTEXT_BYTES {
                         return Err(Error::Limit("visible context bytes"));
                     }
-                    block.runs.push(self.read(&run_path)?);
+                    let mut run: crate::Run = self.read(&run_path)?;
+                    if (clipped_start && i == first) || (clipped_end && i == last) {
+                        let mut left = usize::MAX;
+                        let mut right = 0;
+                        let mut position = 0;
+                        for source in &run.sources {
+                            for wanted in pieces.iter().flat_map(|p| &p.sources) {
+                                if overlaps(source, wanted) {
+                                    left = left.min(
+                                        position + wanted.offset.saturating_sub(source.offset),
+                                    );
+                                    right = right.max(
+                                        position
+                                            + (wanted
+                                                .offset
+                                                .saturating_add(wanted.length)
+                                                .min(source.offset.saturating_add(source.length))
+                                                - source.offset),
+                                    );
+                                }
+                            }
+                            position += source.length;
+                        }
+                        let left = if clipped_start && i == first {
+                            left.min(position)
+                        } else {
+                            0
+                        };
+                        let right = if clipped_end && i == last {
+                            right
+                        } else {
+                            run.text.chars().count()
+                        };
+                        run = slice_run(&run, left, right);
+                    }
+                    block.runs.push(run);
                 }
             }
             let document = pieces
@@ -491,6 +537,35 @@ impl Drop for DiskBook {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+fn slice_run(run: &crate::Run, start: usize, end: usize) -> crate::Run {
+    let mut result = crate::Run {
+        text: run
+            .text
+            .chars()
+            .skip(start)
+            .take(end.saturating_sub(start))
+            .collect(),
+        sources: Vec::new(),
+        emphasis: run.emphasis,
+        strong: run.strong,
+        note_id: run.note_id.clone(),
+    };
+    let mut position = 0usize;
+    for source in &run.sources {
+        let source_end = position.saturating_add(source.length);
+        let left = start.max(position);
+        let right = end.min(source_end);
+        if left < right {
+            let mut source = source.clone();
+            source.offset += left - position;
+            source.length = right - left;
+            result.sources.push(source);
+        }
+        position = source_end;
+    }
+    result
 }
 
 fn oversized_note(id: &str) -> Note {
@@ -804,6 +879,80 @@ impl<'de> Visitor<'de> for DocumentSeed<'_, '_> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn partial_paragraph_exposes_only_selectable_pieces()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let path =
+            std::env::temp_dir().join(format!("disk-book-slice-{}.json", uuid::Uuid::new_v4()));
+        let mut book = empty_book();
+        book.book_id = "slice".into();
+        book.revision = "one".into();
+        for i in 0..1400 {
+            book.pieces.push(Piece {
+                id: format!("p{i}"),
+                text: "word".into(),
+                word_id: format!("w{i}"),
+                sources: vec![SourceSpan {
+                    document: "d".into(),
+                    node: "n".into(),
+                    offset: i * 5,
+                    length: 4,
+                }],
+                block_id: "b".into(),
+                paragraph_end: false,
+                kind: "word".into(),
+                note_id: None,
+            });
+        }
+        let text = vec!["word"; 1400].join(" ");
+        book.documents.push(Document {
+            id: "d".into(),
+            blocks: vec![Block {
+                id: "b".into(),
+                kind: "paragraph".into(),
+                runs: vec![crate::Run {
+                    text: text.clone(),
+                    sources: vec![SourceSpan {
+                        document: "d".into(),
+                        node: "n".into(),
+                        offset: 0,
+                        length: text.len(),
+                    }],
+                    emphasis: true,
+                    strong: false,
+                    note_id: None,
+                }],
+                level: None,
+                alt: None,
+                resource: None,
+                note_id: None,
+            }],
+        });
+        write_json(&path, &book)?;
+        let disk = DiskBook::open(&path)?;
+        fs::remove_file(path)?;
+        let window = disk.load_window(700)?;
+        let runs = &window.book.documents[0].blocks[0].runs;
+        let actual: String = runs.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(
+            actual,
+            window
+                .book
+                .pieces
+                .iter()
+                .map(|p| p.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        for run in runs {
+            assert!(run.emphasis);
+            assert_eq!(
+                run.text.chars().count(),
+                run.sources.iter().map(|s| s.length).sum::<usize>()
+            );
+        }
+        Ok(())
+    }
     #[test]
     fn giant_note_is_explicitly_unsupported_and_giant_piece_is_rejected()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
