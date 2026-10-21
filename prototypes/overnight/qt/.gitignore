@@ -1,0 +1,5 @@
+/target/
+/.qmlls.ini
+/.local/
+/evidence/runtime/
+/evidence/reader.png
