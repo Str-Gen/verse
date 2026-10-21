@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::{
     collections::HashSet,
     env, fs,
-    io::Read,
+    io::Write,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -16,8 +16,11 @@ const MAX_STATE_BYTES: u64 = 1024 * 1024;
 struct Store {
     root: PathBuf,
     book: Mutex<reader_core::Book>,
+    disk: Mutex<reader_core::book_store::DiskBook>,
     book_lock: Mutex<reader_core::persistence::BookLock>,
     self_test: bool,
+    startup_warning: Option<String>,
+    upload: Mutex<Option<(fs::File, PathBuf, u64)>>,
     vocabulary: Mutex<Option<reader_core::vocabulary::Vocabulary>>,
 }
 
@@ -27,31 +30,13 @@ struct Boot {
     state: Option<Value>,
     self_test: bool,
     theme_test: bool,
+    warning: Option<String>,
+    memory_test: bool,
 }
 
 #[tauri::command]
 fn read_theme() -> std::collections::BTreeMap<String, String> {
     theme::read()
-}
-
-fn read_json(path: &Path, limit: u64) -> Result<Value, String> {
-    let file = fs::File::open(path).map_err(|_| "Could not open local JSON file.")?;
-    if file
-        .metadata()
-        .map_err(|_| "Could not inspect local JSON file.")?
-        .len()
-        > limit
-    {
-        return Err("Local JSON file exceeds the size limit.".into());
-    }
-    let mut bytes = Vec::new();
-    file.take(limit + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "Could not read local JSON file.")?;
-    if bytes.len() as u64 > limit {
-        return Err("Local JSON file exceeds the size limit.".into());
-    }
-    serde_json::from_slice(&bytes).map_err(|_| "Local file is not valid JSON.".into())
 }
 
 fn nonempty(value: &Value, key: &str) -> bool {
@@ -200,25 +185,30 @@ fn prepare_session(
     saved: Option<Value>,
     store: tauri::State<'_, Store>,
 ) -> Result<Value, String> {
-    validate_book(&book)?;
-    let parsed: reader_core::Book =
-        reader_core::session::book_from_value(book.clone()).map_err(|e| e.to_string())?;
-    let mut lock = store
-        .book_lock
-        .lock()
-        .map_err(|_| "Publication lock unavailable")?;
-    let next_lock = if lock.book_id() == parsed.book_id {
-        None
-    } else {
-        Some(reader_core::persistence::BookLock::acquire(
-            &parsed.book_id,
-        )?)
-    };
+    let disk = store.disk.lock().map_err(|_| "Book storage unavailable")?;
+    if book["book_id"].as_str() != Some(disk.metadata().book_id.as_str()) {
+        return Err("Book changed before preparing the session".into());
+    }
     let durable =
-        reader_core::persistence::load_record(&store.root.join("state.json"), &parsed.book_id)
+        reader_core::persistence::load_record_for_book(&store.root.join("state.json"), &disk)
             .map_err(|e| e.to_string())?;
-    let resume = reader_core::session::restore(&parsed, durable.as_ref().or(saved.as_ref()))
+    let resume = disk
+        .restore(durable.as_ref().or(saved.as_ref()))
         .map_err(|e| e.to_string())?;
+    let window = disk.load_window(resume.at).map_err(|e| e.to_string())?;
+    let local_at = resume.at.saturating_sub(window.start);
+    let mut result = prepare_window(&store, &disk, window)?;
+    result["resume"] = serde_json::json!({"kind": resume.kind, "at": local_at});
+    result["preferences"] = durable.or(saved).unwrap_or(Value::Null);
+    Ok(result)
+}
+
+fn prepare_window(
+    store: &Store,
+    disk: &reader_core::book_store::DiskBook,
+    window: reader_core::book_store::BookWindow,
+) -> Result<Value, String> {
+    let parsed = window.book;
     let normal = reader_core::session::plan(&parsed.pieces, &parsed.chapters, false);
     let notes = reader_core::session::plan(&parsed.pieces, &parsed.chapters, true);
     let note_plans: std::collections::BTreeMap<_, _> = parsed
@@ -231,28 +221,57 @@ fn prepare_session(
             )
         })
         .collect();
-    *store
+    let mut vocabulary = store
         .vocabulary
         .lock()
-        .map_err(|_| "Vocabulary state unavailable")? = None;
-    let (vocabulary, vocabulary_error) =
-        match reader_core::vocabulary::Vocabulary::open(&store.root, &parsed) {
-            Ok(worker) => (Some(worker), None),
-            Err(error) => (None, Some(error)),
-        };
-    *store
-        .vocabulary
-        .lock()
-        .map_err(|_| "Vocabulary state unavailable")? = vocabulary;
-    let result = serde_json::json!({"vocabulary_error":vocabulary_error,"comfort": {"preparation":reader_core::experience::PREPARATION_MS,"ramp":reader_core::experience::RAMP_MS,"brief_pause":reader_core::experience::BRIEF_PAUSE_MS},"book": &parsed, "resume": resume, "normal": normal, "notes": notes, "note_plans": note_plans});
-    *store
-        .book
-        .lock()
-        .map_err(|_| "Book state is unavailable.")? = parsed;
-    if let Some(next_lock) = next_lock {
-        *lock = next_lock;
-    }
+        .map_err(|_| "Vocabulary state unavailable")?;
+    let vocabulary_error = vocabulary.as_mut().and_then(|worker| worker.request(&serde_json::json!({
+        "action":"open", "book":{"book_id":parsed.book_id,"title":parsed.title,"documents":parsed.documents,"pieces":parsed.pieces}
+    })).err());
+    let chapters: Vec<_> = disk
+        .metadata()
+        .chapters
+        .iter()
+        .zip(disk.chapter_starts())
+        .map(|(c, at)| serde_json::json!({"id":c.id,"title":c.title,"at":at}))
+        .collect();
+    let result = serde_json::json!({
+        "comfort": {"preparation":reader_core::experience::PREPARATION_MS,"ramp":reader_core::experience::RAMP_MS,"brief_pause":reader_core::experience::BRIEF_PAUSE_MS},
+        "vocabulary_error": vocabulary_error, "book": &parsed, "normal": normal, "notes": notes, "note_plans": note_plans,
+        "window": {"start":window.start,"total":window.total,"chapters":chapters}
+    });
+    validate_book(&result["book"])?;
+    *store.book.lock().map_err(|_| "Book state unavailable")? = parsed;
     Ok(result)
+}
+
+#[tauri::command]
+#[expect(clippy::needless_pass_by_value, reason = "owned IPC arguments")]
+fn load_window(
+    at: usize,
+    book_id: String,
+    store: tauri::State<'_, Store>,
+) -> Result<Value, String> {
+    let disk = store.disk.lock().map_err(|_| "Book storage unavailable")?;
+    if disk.metadata().book_id != book_id {
+        return Err("Book changed before navigation".into());
+    }
+    let window = disk.load_window(at).map_err(|e| e.to_string())?;
+    prepare_window(&store, &disk, window)
+}
+
+#[tauri::command]
+#[expect(clippy::needless_pass_by_value, reason = "owned IPC arguments")]
+fn image_resources(
+    at: usize,
+    book_id: String,
+    store: tauri::State<'_, Store>,
+) -> Result<Vec<reader_core::Resource>, String> {
+    let disk = store.disk.lock().map_err(|_| "Book storage unavailable")?;
+    if disk.metadata().book_id != book_id {
+        return Err("Book changed before image prefetch".into());
+    }
+    disk.image_resources(at).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -277,6 +296,8 @@ fn boot(store: tauri::State<'_, Store>) -> Result<Boot, String> {
         state,
         self_test: store.self_test,
         theme_test: store.self_test && env::var_os("READER_THEME_TEST").is_some(),
+        warning: store.startup_warning.clone(),
+        memory_test: store.self_test && env::var_os("READER_MEMORY_TEST").is_some(),
     })
 }
 
@@ -287,30 +308,78 @@ fn boot(store: tauri::State<'_, Store>) -> Result<Boot, String> {
 )]
 fn import_book(json: String, store: tauri::State<'_, Store>) -> Result<Value, String> {
     if json.len() as u64 > MAX_BOOK_BYTES {
-        return Err("Book JSON exceeds the size limit.".into());
+        return Err("Book JSON exceeds the size limit".into());
     }
-    let book: Value = serde_json::from_str(&json).map_err(|_| "Book is not valid JSON.")?;
-    validate_book(&book)?;
-    let id = book["book_id"].as_str().ok_or("Missing book identity")?;
+    let path = unique_import_path(&store.root)?;
+    fs::write(&path, json.as_bytes()).map_err(|e| e.to_string())?;
+    open_disk(&store, &path)
+}
+
+fn unique_import_path(root: &Path) -> Result<PathBuf, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    Ok(root.join(format!("import-{}-{stamp}.json", std::process::id())))
+}
+
+fn open_disk(store: &Store, path: &Path) -> Result<Value, String> {
+    let next = reader_core::book_store::DiskBook::open(path).map_err(|e| e.to_string())?;
+    let window = next.load_window(0).map_err(|e| e.to_string())?;
     let mut lock = store
         .book_lock
         .lock()
         .map_err(|_| "Publication lock unavailable")?;
-    let next_lock = if lock.book_id() == id {
+    let next_lock = if lock.book_id() == next.metadata().book_id {
         None
     } else {
-        Some(reader_core::persistence::BookLock::acquire(id)?)
+        Some(reader_core::persistence::BookLock::acquire(
+            &next.metadata().book_id,
+        )?)
     };
-    let mut current = store
-        .book
-        .lock()
-        .map_err(|_| "Book state is unavailable.")?;
-    write_json(&store.root, "book.json", &book)?;
+    let mut disk = store.disk.lock().map_err(|_| "Book storage unavailable")?;
+    let result = serde_json::to_value(&window.book).map_err(|e| e.to_string())?;
+    validate_book(&result)?;
+    reader_core::location::write_json(&store.root.join("last-book.json"), &path)
+        .map_err(|e| e.to_string())?;
+    *store.book.lock().map_err(|_| "Book state unavailable")? = window.book;
+    *disk = next;
     if let Some(next_lock) = next_lock {
         *lock = next_lock;
     }
-    *current = reader_core::session::book_from_value(book.clone()).map_err(|e| e.to_string())?;
-    Ok(book)
+    Ok(result)
+}
+
+#[tauri::command]
+#[expect(clippy::needless_pass_by_value, reason = "owned IPC arguments")]
+fn upload_book(
+    data: Vec<u8>,
+    start: bool,
+    finish: bool,
+    store: tauri::State<'_, Store>,
+) -> Result<Option<Value>, String> {
+    if data.len() > 65536 {
+        return Err("Upload chunk exceeds 64 KiB".into());
+    }
+    let mut upload = store.upload.lock().map_err(|_| "Upload unavailable")?;
+    if start {
+        let path = unique_import_path(&store.root)?;
+        *upload = Some((fs::File::create(&path).map_err(|e| e.to_string())?, path, 0));
+    }
+    let (file, path, length) = upload.as_mut().ok_or("No upload in progress")?;
+    *length += data.len() as u64;
+    if *length > 1024 * 1024 * 1024 {
+        *upload = None;
+        return Err("Book exceeds 1 GiB".into());
+    }
+    file.write_all(&data).map_err(|e| e.to_string())?;
+    if !finish {
+        return Ok(None);
+    }
+    file.sync_all().map_err(|e| e.to_string())?;
+    let path = path.clone();
+    *upload = None;
+    open_disk(&store, &path).map(Some)
 }
 
 #[tauri::command]
@@ -332,28 +401,28 @@ fn save_state(
     {
         return Err("Reading state must be an object within the size limit.".into());
     }
-    let guard = store
-        .book
-        .lock()
-        .map_err(|_| "Book state is unavailable.")?;
-    let book = &*guard;
-    if book.book_id != book_id {
-        return Err("Book changed before save.".into());
+    let disk = store.disk.lock().map_err(|_| "Book storage unavailable")?;
+    if disk.metadata().book_id != book_id
+        || state["books"][&book_id]["revision"].as_str() != Some(disk.metadata().revision.as_str())
+    {
+        return Err("Book changed before save".into());
     }
-    let record = reader_core::session::capture(book, at, &state["books"][&book_id])
+    let record = disk
+        .capture(at, &state["books"][&book_id])
         .map_err(|e| e.to_string())?;
-    let chapter_at = book
-        .chapters
+    let chapter_at = disk
+        .chapter_starts()
         .iter()
-        .filter_map(|c| book.pieces.iter().position(|p| p.id == c.start_piece))
+        .copied()
         .filter(|start| *start <= at)
         .max()
         .unwrap_or(0);
-    let chapter = reader_core::session::capture(book, chapter_at, &state["books"][&book_id])
+    let chapter = disk
+        .capture(chapter_at, &state["books"][&book_id])
         .map_err(|e| e.to_string())?;
-    reader_core::persistence::save_record(
+    reader_core::persistence::save_record_for_book(
         &store.root.join("state.json"),
-        &book_id,
+        &disk,
         &record,
         &chapter,
     )
@@ -379,6 +448,19 @@ fn test_result(
         result.get("passed").and_then(Value::as_bool) != Some(true),
     ));
     Ok(())
+}
+
+#[tauri::command]
+#[expect(clippy::needless_pass_by_value, reason = "owned IPC arguments")]
+fn test_phase(phase: String, store: tauri::State<'_, Store>) -> Result<(), String> {
+    if !store.self_test {
+        return Err("Test reporting disabled".into());
+    }
+    write_json(
+        &store.root,
+        "memory-phase.json",
+        &serde_json::json!({"phase":phase}),
+    )
 }
 
 fn initialize() -> Result<Store, String> {
@@ -414,27 +496,54 @@ fn initialize() -> Result<Store, String> {
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
             .map_err(|_| "Could not protect isolated reader storage.")?;
     }
-    let book = if self_test {
-        serde_json::from_str(include_str!("../../web/demo.json"))
-            .map_err(|_| "Bundled demo is invalid.")?
+    let explicit = book_path.is_some() || self_test;
+    let path = if self_test && env::var_os("READER_MEMORY_TEST").is_none() {
+        owned.join("web/demo.json")
     } else if let Some(path) = book_path {
-        read_json(&path, MAX_BOOK_BYTES)?
-    } else if root.join("book.json").exists() {
-        read_json(&root.join("book.json"), MAX_BOOK_BYTES)?
+        path
     } else {
-        serde_json::from_str(include_str!("../../web/demo.json"))
-            .map_err(|_| "Bundled demo is invalid.")?
+        reader_core::location::read_json::<PathBuf>(&root.join("last-book.json"))
+            .ok()
+            .filter(|path| path.is_file())
+            .unwrap_or_else(|| {
+                if root.join("book.json").is_file() {
+                    root.join("book.json")
+                } else {
+                    owned.join("web/demo.json")
+                }
+            })
     };
-    validate_book(&book)?;
-    let book_lock = reader_core::persistence::BookLock::acquire(
-        book["book_id"].as_str().ok_or("Missing book identity")?,
-    )?;
-    write_json(&root, "book.json", &book)?;
+    let (disk, path, startup_warning) = match reader_core::book_store::DiskBook::open(&path) {
+        Ok(disk) => (disk, path, None),
+        Err(error) if !explicit => {
+            let fallback = owned.join("web/demo.json");
+            let disk =
+                reader_core::book_store::DiskBook::open(&fallback).map_err(|e| e.to_string())?;
+            (
+                disk,
+                fallback,
+                Some(format!(
+                    "Could not reopen the remembered book: {error}. Open the book again to recover its saved position."
+                )),
+            )
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let book_lock = reader_core::persistence::BookLock::acquire(&disk.metadata().book_id)?;
+    let window = disk.load_window(0).map_err(|e| e.to_string())?;
+    reader_core::location::write_json(
+        &root.join("last-book.json"),
+        &fs::canonicalize(&path).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(Store {
         root,
         book_lock: Mutex::new(book_lock),
-        book: Mutex::new(reader_core::session::book_from_value(book).map_err(|e| e.to_string())?),
+        book: Mutex::new(window.book),
+        disk: Mutex::new(disk),
         self_test,
+        startup_warning,
+        upload: Mutex::new(None),
         vocabulary: Mutex::new(None),
     })
 }
@@ -467,7 +576,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let webview_data = store.root.join("webview");
+    let webview_data = store.root.join(format!("webview-{}", std::process::id()));
     if let Err(error) = tauri::Builder::default()
         .setup(move |app| {
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
@@ -485,11 +594,15 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             boot,
             prepare_session,
+            load_window,
+            image_resources,
             vocabulary,
             read_theme,
             import_book,
+            upload_book,
             save_state,
-            test_result
+            test_result,
+            test_phase
         ])
         .run(tauri::generate_context!())
     {

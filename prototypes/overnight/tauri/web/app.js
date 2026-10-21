@@ -8,6 +8,9 @@ const storageKey = 'overnight-tauri-browser-v1';
 let book, saved = { books: Object.create(null) }, at = 0, page = 0, pages = 1, pageWidth = 1;
 let mode = 'reading', timer, nextChapter = null, guarded = false, recoveryAt = null;
 let startup = null, notePlayback = null, policy = null;
+let windowInfo = null, navigating = false, navigationEpoch = 0, playbackEpoch = 0;
+let imageEpoch = 0, imageCache = new Map(), imageBusy = false, imageAgain = false;
+let pendingCheckpoint = null, writingCheckpoint = false, lastCheckpoint = 0;
 let paceChanges = [], writeQueue = Promise.resolve(), sourceMap, pageForPiece = new Map();
 const blocks = new Map();
 let comfort = new Comfort(), preparing = false, exposures = [], exposure = null;
@@ -33,17 +36,26 @@ function beginPlayback() {
 function notice(text = '') { $('notice').textContent = text; }
 function preferences() { return Object.hasOwn(saved.books, book.book_id) ? saved.books[book.book_id] : {}; }
 function speed() { return Math.max(60, Math.min(1200, Number($('speed').value) || 350)); }
-function persist() {
+function persist(force = false) {
   if (!book || guarded) return;
   saved.books[book.book_id] = { ...preferences(), ...position(book, at), speed: speed(), fontSize: Number($('font-size').value), feedback: $('feedback-enabled').checked, followNotes: $('follow-notes').checked, pendingChanges: paceChanges, pendingChapter: chapterAt(book, at)?.id ?? null, history: preferences().history ?? [] };
-  const state = JSON.parse(JSON.stringify(saved)), savedAt = at, bookId = book.book_id;
-  writeQueue = writeQueue.catch(() => {}).then(async () => {
-    if (native) {
-      const record = await native.invoke('save_state', { state, at: savedAt, bookId });
-      saved.books[bookId].location = record.location;
+  if (!force && mode === 'playing' && performance.now() - lastCheckpoint < 2000) return;
+  lastCheckpoint = performance.now();
+  pendingCheckpoint = {state: JSON.parse(JSON.stringify(saved)), savedAt: (windowInfo?.start ?? 0) + at, bookId: book.book_id};
+  if (writingCheckpoint) return;
+  writingCheckpoint = true;
+  writeQueue = (async () => {
+    while (pendingCheckpoint) {
+      const {state, savedAt, bookId} = pendingCheckpoint;
+      pendingCheckpoint = null;
+      try {
+        if (native) {
+          const record = await native.invoke('save_state', {state, at: savedAt, bookId});
+          if (saved.books[bookId]?.revision === record.revision) saved.books[bookId].location = record.location;
+        } else localStorage.setItem(storageKey, JSON.stringify({book, state}));
+      } catch { notice('Could not save this session. Check scratch storage before closing.'); }
     }
-    else localStorage.setItem(storageKey, JSON.stringify({ book, state }));
-  }).catch(() => notice('Could not save this session. Check scratch storage before closing.'));
+  })().finally(() => { writingCheckpoint = false; });
 }
 function choose(index, { explicit = true } = {}) {
   if (!Number.isInteger(index) || index < 0 || index >= book.pieces.length) return;
@@ -52,6 +64,7 @@ function choose(index, { explicit = true } = {}) {
     if (chapterAt(book, at)?.id !== chapterAt(book, index)?.id) paceChanges = [];
   }
   at = index;
+  if (native && kindAt(at) === 'image') void refreshImages();
   document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
   document.querySelectorAll(`[data-piece="${at}"]`).forEach(el => el.classList.add('selected'));
   persist();
@@ -90,9 +103,10 @@ function render() {
       element.append(button);
     } else if (block.kind === 'image') {
       element = document.createElement('figure');
-      const resource = localImage(book.resources?.find(r => r.id === block.resource)?.data_url ?? block.resource);
+      if (native) { const img = document.createElement('img'); img.dataset.resource = block.resource ?? ''; img.alt = block.alt ?? 'Book image'; img.addEventListener('load', reflow); element.append(img); }
+      const resource = native ? null : localImage(book.resources?.find(r => r.id === block.resource)?.data_url ?? block.resource);
       if (resource) { const img = document.createElement('img'); img.src = resource; img.alt = block.alt ?? 'Book image'; img.addEventListener('load', reflow); element.append(img); }
-      if (!resource) { const caption = document.createElement('figcaption'); caption.textContent = `${block.alt?.trim() || 'Image'} · Image unavailable.`; element.append(caption); }
+      if (!resource && !native) { const caption = document.createElement('figcaption'); caption.textContent = `${block.alt?.trim() || 'Image'} · Image unavailable.`; element.append(caption); }
     } else if (['heading', 'paragraph', 'list_item'].includes(block.kind)) {
       element = document.createElement(block.kind === 'heading' ? `h${[1,2,3].includes(block.level) ? block.level : 2}` : block.kind === 'list_item' ? 'li' : 'p');
       block.runs.forEach(run => element.append(makeText(run)));
@@ -102,12 +116,65 @@ function render() {
     if (first >= 0 && !element.querySelector('[data-piece]')) element.dataset.piece = first;
     article.append(element);
   }
+  if (native) void refreshImages();
   $('title').textContent = book.title;
   $('chapters').replaceChildren();
   const front = document.createElement('option'); front.value = '0'; front.textContent = 'Beginning'; $('chapters').append(front);
-  for (const chapter of book.chapters) {
-    const option = document.createElement('option'); option.value = book.pieces.findIndex(p => p.id === chapter.start_piece); option.textContent = chapter.title; $('chapters').append(option);
+  for (const chapter of windowInfo?.chapters ?? book.chapters) {
+    const option = document.createElement('option'); option.value = windowInfo ? chapter.at : book.pieces.findIndex(p => p.id === chapter.start_piece); option.textContent = chapter.title; $('chapters').append(option);
   }
+}
+function releaseImage(img) {
+  img.removeAttribute('src');
+  if (img.dataset.objectUrl) URL.revokeObjectURL(img.dataset.objectUrl);
+}
+function imageUrl(dataUrl) {
+  const comma = dataUrl.indexOf(',');
+  const type = dataUrl.slice(5, dataUrl.indexOf(';'));
+  const binary = atob(dataUrl.slice(comma + 1));
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return URL.createObjectURL(new Blob([bytes], {type}));
+}
+function imageFailure(id) {
+  for (const img of document.querySelectorAll('#book img[data-resource]')) {
+    if (img.dataset.resource !== id || img.parentElement.querySelector('figcaption')) continue;
+    const caption = document.createElement('figcaption');
+    caption.textContent = `${img.alt || 'Image'} · Image unavailable.`;
+    img.parentElement.append(caption);
+  }
+}
+async function refreshImages() {
+  if (!native || !book || !windowInfo) return;
+  if (imageBusy) { imageAgain = true; return; }
+  imageBusy = true;
+  const epoch = ++imageEpoch, bookId = book.book_id;
+  try {
+    const visible = mode === 'reading' ? [...document.querySelectorAll('#book img[data-resource]')].filter(img => pageOfElement(img) === page).map(img => Number(img.closest('[data-piece]')?.dataset.piece)).filter(Number.isInteger) : [];
+    const imageAt = visible.length ? visible[Math.floor(visible.length / 2)] : at;
+    const resources = await native.invoke('image_resources', {at: windowInfo.start + imageAt, bookId});
+    if (epoch !== imageEpoch || book.book_id !== bookId) return;
+    const wanted = new Set(resources.map(r => r.id));
+    for (const [id, img] of imageCache) if (!wanted.has(id)) { releaseImage(img); imageCache.delete(id); }
+    for (const el of document.querySelectorAll('#book img[data-resource]')) {
+      if (!wanted.has(el.dataset.resource)) el.removeAttribute('src');
+    }
+    await Promise.all(resources.map(async resource => {
+      if (imageCache.has(resource.id)) return;
+      const url = localImage(resource.data_url || resource.id); if (!url) { imageFailure(resource.id); return; }
+      const img = new Image();
+      if (url.startsWith('data:')) { img.dataset.objectUrl = imageUrl(url); img.src = img.dataset.objectUrl; }
+      else img.src = url;
+      try { await img.decode(); } catch { releaseImage(img); if (epoch === imageEpoch) imageFailure(resource.id); return; }
+      if (epoch === imageEpoch && book.book_id === bookId) imageCache.set(resource.id, img);
+      else releaseImage(img);
+    }));
+    if (epoch !== imageEpoch) return;
+    for (const el of document.querySelectorAll('#book img[data-resource]')) {
+      const cached = imageCache.get(el.dataset.resource);
+      if (cached) { el.parentElement.querySelector('figcaption')?.remove(); if (el.src !== cached.src) el.src = cached.src; }
+    }
+  } catch (error) { if (epoch === imageEpoch) notice(`Image unavailable: ${error}`); }
+  finally { imageBusy = false; if (imageAgain) { imageAgain = false; queueMicrotask(refreshImages); } }
 }
 function pageOfElement(el) {
   const rect = el.getClientRects()[0];
@@ -118,7 +185,7 @@ function showPage(value) {
   page = Math.max(0, Math.min(pages - 1, value));
   $('book').style.transform = `translateX(${-page * pageWidth}px)`;
   $('page-label').textContent = `${page + 1} / ${pages}`;
-  $('previous').disabled = page === 0; $('next').disabled = page >= pages - 1;
+  $('previous').disabled = page === 0 && !(windowInfo?.start > 0); $('next').disabled = page >= pages - 1 && !hasNextWindow();
 }
 function reflow() {
   if (!book) return;
@@ -138,16 +205,47 @@ function reflow() {
   });
   showPage(pageForPiece.get(at) ?? 0);
   choose(at, { explicit: false });
+  if (native) void refreshImages();
 }
-function turn(direction) {
-  if (mode !== 'reading') return;
+function hasNextWindow() { return windowInfo && windowInfo.start + book.pieces.length < windowInfo.total; }
+function globalChapter(index) {
+  return windowInfo?.chapters.filter(c => c.at <= index).at(-1) ?? null;
+}
+async function moveWindow(destination) {
+  if (!native || navigating) return false;
+  navigating = true;
+  const epoch = ++navigationEpoch;
+  try {
+    finishExposure();
+    await writeQueue;
+    const prepared = await native.invoke('load_window', {at: destination, bookId: book.book_id});
+    if (epoch !== navigationEpoch) return false;
+    const oldStart = windowInfo.start;
+    policy = prepared; windowInfo = prepared.window;
+    book = validateBook(prepared.book); at = destination - windowInfo.start;
+    exposures = exposures.map(e => ({...e, piece: e.piece + oldStart - windowInfo.start})).filter(e => e.piece >= 0 && e.piece < book.pieces.length); exposure = null;
+    render(); reflow();
+    return true;
+  } catch (error) {
+    stop(); mode = 'paused'; notice(`Could not load this section: ${error}`);
+    return false;
+  } finally { navigating = false; }
+}
+async function turn(direction) {
+  if (mode !== 'reading' || navigating) return;
   const target = Math.max(0, Math.min(pages - 1, page + direction));
-  if (target === page) return;
+  if (target === page) {
+    if (direction > 0 && hasNextWindow()) await moveWindow(windowInfo.start + book.pieces.length);
+    else if (direction < 0 && windowInfo?.start > 0) await moveWindow(windowInfo.start - 1);
+    return;
+  }
   showPage(target);
   const first = [...pageForPiece].find(([, p]) => p === page);
   if (first) choose(first[0]);
+  if (native) void refreshImages();
 }
-function stop() { finishExposure(); if (mode === 'playing') comfort.pause(performance.now()); preparing = false; clearTimeout(timer); timer = undefined; $('playback').classList.remove('running', 'preparing'); }
+
+function stop() { playbackEpoch++; finishExposure(); if (mode === 'playing') comfort.pause(performance.now()); preparing = false; clearTimeout(timer); timer = undefined; $('playback').classList.remove('running', 'preparing'); }
 function returnToText() {
   stop(); comfort = new Comfort(policy?.comfort); notePlayback = null; mode = 'reading'; $('playback').hidden = true;
   if ($('boundary').open) $('boundary').close();
@@ -187,7 +285,9 @@ function boundary(next) {
   $('pace').value = 'comfortable'; $('understanding').value = 'easily'; $('suggestion').hidden = true; $('accept-speed').checked = false;
   $('boundary').showModal();
 }
-function advance() {
+async function advance() {
+  if (navigating) return;
+  const epoch = playbackEpoch;
   finishExposure();
   clearTimeout(timer);
   if (notePlayback) {
@@ -204,7 +304,17 @@ function advance() {
   const action = policy?.[$('follow-notes').checked ? 'notes' : 'normal'][at];
   let next = action ? action.next ?? book.pieces.length : at + 1;
   if (!action) while (next < book.pieces.length && skipAt(next)) next++;
-  if (next >= book.pieces.length) { boundary(next); return; }
+  if (next >= book.pieces.length) {
+    if (!hasNextWindow()) { boundary(next); return; }
+    const destination = windowInfo.start + book.pieces.length;
+    const outgoing = globalChapter(windowInfo.start + at), incoming = globalChapter(destination);
+    if (outgoing && incoming?.id !== outgoing.id) { boundary(next); return; }
+    if (!await moveWindow(destination) || epoch !== playbackEpoch) return;
+    displayCurrent();
+    if (enterNote()) return;
+    if (['image','unsupported'].includes(kindAt(at))) { stop(); mode = 'paused'; return; }
+    schedule(); return;
+  }
   const currentChapter = chapterAt(book, at), incoming = chapterAt(book, next);
   if (action ? action.chapter_boundary : currentChapter && incoming?.id !== currentChapter.id) { boundary(next); return; }
   at = next; displayCurrent();
@@ -220,13 +330,20 @@ function schedule() {
   beginExposure();
   timer = setTimeout(advance, (60000 / speed() * multiplier + (timing ? timing.extra_ms : piece.paragraph_end ? 120 : 0)) / comfort.fraction(performance.now()));
 }
-function play() {
+async function play() {
+  if (navigating) return;
   if (document.querySelector('dialog[open]')) return;
   if (mode === 'playing') { stop(); mode = 'paused'; $('play-status').textContent = 'Paused · Space to continue · Escape to return'; persist(); return; }
   if (mode === 'reading') {
     while (at < book.pieces.length && skipAt(at)) {
       const next = policy?.[$('follow-notes').checked ? 'notes' : 'normal'][at].next;
-      if (policy && next === null || !policy && at === book.pieces.length - 1) { notice('End of book.'); return; }
+      if (policy && next === null || !policy && at === book.pieces.length - 1) {
+        if (hasNextWindow()) {
+          const epoch = playbackEpoch;
+          if (await moveWindow(windowInfo.start + book.pieces.length) && epoch === playbackEpoch) await play();
+        } else notice('End of book.');
+        return;
+      }
       at = policy ? next : at + 1;
     }
     $('playback').hidden = false; displayCurrent();
@@ -236,7 +353,8 @@ function play() {
   } else if (['image','unsupported'].includes(notePlayback ? notePlayback.actions?.[notePlayback.index].kind : kindAt(at))) { advance(); if (mode === 'playing') { clearTimeout(timer); finishExposure(); beginPlayback(); } }
   else beginPlayback();
 }
-function continueChapter(store) {
+async function continueChapter(store) {
+  const epoch = playbackEpoch;
   if (nextChapter === null) return;
   if (store) {
     const prior = speed();
@@ -246,8 +364,11 @@ function continueChapter(store) {
     saved.books[book.book_id] = { ...preferences(), history };
   }
   paceChanges = []; const destination = nextChapter; nextChapter = null; $('boundary').close();
-  if (destination >= book.pieces.length) { persist(); returnToText(); notice('End of book.'); return; }
-  at = destination; displayCurrent();
+  if (destination >= book.pieces.length) {
+    if (!hasNextWindow()) { persist(); returnToText(); notice('End of book.'); return; }
+    if (!await moveWindow(windowInfo.start + book.pieces.length) || epoch !== playbackEpoch) return;
+  } else at = destination;
+  displayCurrent();
   if (enterNote(true)) return;
   if (['image', 'unsupported'].includes(kindAt(at))) { mode = 'paused'; return; }
   beginPlayback();
@@ -256,14 +377,17 @@ function showDetails(title, text, history = false) {
   $('details-title').textContent = title; $('details-body').textContent = text; $('clear-history').hidden = !history; $('details').showModal();
 }
 async function loadBook(value) {
+  navigationEpoch++;
   const validated = validateBook(value);
   stop();
+  imageEpoch++; for (const img of imageCache.values()) releaseImage(img); imageCache.clear();
   await writeQueue;
   const prefsForBook = saved.books[validated.book_id];
   const prepared = native ? await native.invoke('prepare_session', { book: validated, saved: prefsForBook ?? null }) : null;
-  policy = prepared;
+  policy = prepared; windowInfo = prepared?.window ?? null;
   comfort = new Comfort(policy?.comfort); exposures = []; exposure = null; vocabulary.reset();
   notePlayback = null; book = prepared ? validateBook(prepared.book) : validated; mode = 'reading'; $('playback').hidden = true; guarded = false;
+  if (prepared?.preferences) saved.books[book.book_id] = prepared.preferences;
   const prefs = preferences(), location = prepared?.resume ?? restore(book, prefs.revision ? prefs : null);
   $('speed').value = Number.isFinite(prefs.speed) ? prefs.speed : 350;
   $('font-size').value = Number.isFinite(prefs.fontSize) ? prefs.fontSize : 20;
@@ -280,15 +404,31 @@ async function loadBook(value) {
   }
 }
 async function importBook(json) {
+  stop(); mode = 'reading'; navigationEpoch++; persist(true);
   const parsed = validateBook(JSON.parse(json));
   await writeQueue;
-  if (native) await native.invoke('import_book', { json });
-  await loadBook(parsed);
+  const value = native ? await native.invoke('import_book', { json }) : parsed;
+  await loadBook(value);
 }
 $('open').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file) return;
-  try { if (file.size > 32 * 1024 * 1024) throw new Error('too large'); await importBook(await file.text()); }
-  catch { notice('Could not open this normalized book JSON. The current book is still available. Maximum file size is 32 MiB.'); }
+  try {
+    stop(); mode = 'reading'; navigationEpoch++; persist(true);
+    await writeQueue;
+    if (native) {
+      if (file.size > 1024 * 1024 * 1024) throw new Error('Book exceeds 1 GiB');
+      await native.invoke('upload_book', {data: [], start: true, finish: false});
+      for (let offset = 0; offset < file.size; offset += 65536) {
+        const data = Array.from(new Uint8Array(await file.slice(offset, offset + 65536).arrayBuffer()));
+        await native.invoke('upload_book', {data, start: false, finish: false});
+      }
+      const value = await native.invoke('upload_book', {data: [], start: false, finish: true});
+      await loadBook(value);
+    } else {
+      if (file.size > 32 * 1024 * 1024) throw new Error('Browser preview limit is 32 MiB');
+      await importBook(await file.text());
+    }
+  } catch (error) { notice(`Could not open this book: ${error}`); }
   event.target.value = '';
 });
 $('book').addEventListener('mouseup', event => {
@@ -314,7 +454,12 @@ $('font-size').oninput = reflow;
 $('speed').onchange = () => { $('speed').value = speed(); paceChanges.push({ date: new Date().toISOString(), wpm: speed(), sources: book.pieces[at].sources }); persist(); };
 $('feedback-enabled').onchange = persist;
 $('follow-notes').onchange = persist;
-$('chapters').onchange = () => { returnToText(); choose(Number($('chapters').value)); reflow(); };
+$('chapters').onchange = async () => {
+  const destination = Number($('chapters').value);
+  returnToText();
+  if (windowInfo) { await moveWindow(destination); choose(at); }
+  else { choose(destination); reflow(); }
+};
 $('pace').onchange = () => { const delta = $('pace').value === 'fast' ? -25 : 25; $('suggestion').hidden = $('pace').value === 'comfortable'; $('accept-speed').checked = false; $('suggestion-text').textContent = `Use ${Math.max(60, Math.min(1200, speed() + delta))} WPM for the next chapter`; };
 $('skip-feedback').onclick = () => continueChapter(false); $('save-feedback').onclick = () => continueChapter(true);
 $('boundary').addEventListener('close', () => { if (nextChapter !== null) { nextChapter = null; returnToText(); } });
@@ -335,11 +480,18 @@ document.addEventListener('keydown', event => {
   else if (event.code === 'ArrowLeft') { event.preventDefault(); turn(-1); }
 });
 new ResizeObserver(() => { if (mode === 'reading') reflow(); }).observe($('viewport'));
-window.addEventListener('pagehide', persist);
+window.addEventListener('pagehide', () => persist(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'playing') { stop(); mode = 'paused'; persist(); } });
 export const reader = {
   get startup() { return startup; },
-  get snapshot() { return { book, at, page, pages, mode, guarded, notePlayback, state: saved, speed: speed(), pageForPiece }; },
+  get snapshot() { return { book, windowInfo, globalAt: (windowInfo?.start ?? 0) + at, at, page, pages, mode, guarded, notePlayback, state: saved, speed: speed(), pageForPiece }; },
+  async seekGlobal(index) {
+    if (!windowInfo) { choose(index); return; }
+    if (index < windowInfo.start || index >= windowInfo.start + book.pieces.length) {
+      if (!await moveWindow(index)) throw new Error('Could not seek to passage');
+    }
+    choose(index - windowInfo.start);
+  },
   choose, reflow, turn, play, returnToText, importBook, loadBook, advance, vocabulary,
   flush: () => writeQueue,
 };
@@ -353,10 +505,11 @@ async function boot() {
     result = { book: stored?.book ?? await (await fetch('demo.json')).json(), state: stored?.state };
   }
   saved = { books: Object.assign(Object.create(null), result.state?.books ?? {}) };
-  startup = JSON.parse(JSON.stringify(saved));
   await loadBook(result.book);
+  startup = JSON.parse(JSON.stringify(saved));
+  if (result.warning) notice(result.warning);
   if (result.self_test || new URLSearchParams(location.search).has('self-test')) {
-    const { runTests } = await import(result.theme_test ? './theme-test.js' : './self-test.js');
+    const { runTests } = await import(result.memory_test ? './memory-test.js' : result.theme_test ? './theme-test.js' : './self-test.js');
     const report = await runTests(reader);
     await writeQueue;
     if (native) await native.invoke('test_result', { result: report });

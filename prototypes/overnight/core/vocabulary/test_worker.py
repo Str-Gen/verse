@@ -48,6 +48,21 @@ class VocabularyTests(unittest.TestCase):
             self.assertEqual(notebook.capture(doc,[dict(piece=0,start=0,end=10)],10,'seconds','full')['id'],full['id'])
             notebook.close()
 
+    def test_window_replacement_keeps_saved_sentence_and_book_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            notebook = VocabularyCapture(Path(directory)/'words.sqlite', None)
+            paragraphs, pieces, _ = document(book())
+            old = notebook.open_document(paragraphs, pieces, 'Synthetic', 'same-book', replace=True)
+            captured = notebook.capture(old, [dict(piece=6, start=0, end=100)], 100, 'seconds', 'old-window')
+            notebook.feedback(captured['id'], 0, 'recognition')
+            new = notebook.open_document(['Next passage.'], [dict(paragraph=0,start=0,end=4,sentence=0)], 'Synthetic', 'same-book', replace=True)
+            with self.assertRaises(KeyError):
+                notebook.capture(old, [dict(piece=6,start=0,end=100)],100,'seconds')
+            review = notebook.review(new)
+            self.assertEqual(review['words'][0]['candidate']['sentence'], 'Whorls remain.')
+            self.assertEqual(review['captures'][0]['id'], captured['id'])
+            notebook.close()
+
     def test_nearby_taps_nominate_distinct_ranked_words(self):
         class Judge:
             def rank(self, capture, confirmed):

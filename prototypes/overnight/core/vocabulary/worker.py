@@ -66,7 +66,7 @@ def main():
                 action = request['action']
                 if action == 'open':
                     paragraphs, pieces, indices = document(request['book'])
-                    current = notebook.open_document(paragraphs, pieces, request['book']['title'], request['book'].get('book_id'))
+                    current = notebook.open_document(paragraphs, pieces, request['book']['title'], request['book'].get('book_id'), replace=True)
                     result = {'document': current}
                 elif action == 'capture':
                     exposures = [{**e, 'piece': indices[e['piece']]} for e in request['exposures'] if e['piece'] in indices]

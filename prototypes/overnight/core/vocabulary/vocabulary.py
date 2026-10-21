@@ -136,7 +136,7 @@ class VocabularyCapture:
                 capture.update(status="failed", error="Ranking was interrupted; retry when ready.")
                 self._save(capture)
 
-    def open_document(self, paragraphs: list[str], pieces: list[dict], title: str, identity: str | None = None) -> str:
+    def open_document(self, paragraphs: list[str], pieces: list[dict], title: str, identity: str | None = None, *, replace: bool = False) -> str:
         if not paragraphs or not pieces or len(pieces) > 2_000_000:
             raise ValueError("Document is empty or exceeds the supported size.")
         for piece in pieces:
@@ -147,7 +147,9 @@ class VocabularyCapture:
                 raise ValueError("Invalid source coordinates.")
         identifier = hashlib.sha256(json.dumps([paragraphs, pieces] if identity is None else [identity, paragraphs, pieces]).encode()).hexdigest()
         with self._lock:
-            self._documents[identifier] = {"paragraphs": paragraphs, "pieces": pieces, "title": title}
+            if replace:
+                self._documents.clear()
+            self._documents[identifier] = {"paragraphs": paragraphs, "pieces": pieces, "title": title, "book_id": identity}
         return identifier
 
     def capture(self, document: str, exposures: list[dict], now: float, scope: str, tap_id: str | None = None) -> dict:
@@ -243,8 +245,9 @@ class VocabularyCapture:
                 return json.loads(existing[0])
             capture = {
                 "id": identifier, "created": time.time(), "document": document, "title": doc["title"],
+                "book_id": doc.get("book_id"),
                 "scope": scope, "window_seconds": 5 if scope == "seconds" else None,
-                "context": context, "candidates": candidates, "feedback": {},
+                "context": context, "candidates": [self._sentence(document, c) for c in candidates], "feedback": {},
                 "incomplete_words_omitted": incomplete, "judgments": [], "kept": [],
                 "status": "saved", "error": None,
             }
@@ -267,7 +270,9 @@ class VocabularyCapture:
 
     def review(self, document: str | None = None) -> dict:
         with self._lock:
-            captures = [c for c in self._load() if document is None or c["document"] == document]
+            book_id = self._documents.get(document, {}).get("book_id")
+            captures = [c for c in self._load() if document is None or c["document"] == document
+                        or book_id is not None and c.get("book_id") == book_id]
             captures.sort(key=lambda c: (c["created"], c["id"]))
             suggestions, previous, words = [], [], {}
             for capture in captures:
