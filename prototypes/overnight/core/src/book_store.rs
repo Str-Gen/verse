@@ -542,9 +542,13 @@ impl Sink<'_> {
                     break;
                 }
                 let end = start + text.chars().count();
-                let mut chunk = run.clone();
-                chunk.text = text;
-                chunk.sources.clear();
+                let mut chunk = crate::Run {
+                    text,
+                    sources: Vec::new(),
+                    emphasis: run.emphasis,
+                    strong: run.strong,
+                    note_id: run.note_id.clone(),
+                };
                 let mut position = 0usize;
                 for source in &run.sources {
                     let source_end = position + source.length;
