@@ -109,6 +109,7 @@ def launch(frontend, profile, name, argv):
     book_json = args.book_json.resolve(strict=True) if args.book_json else None
     if epub is not None:
         epub = epub.resolve(strict=True)
+    if epub is not None and frontend == "tauri":
         if not importer.is_file() or not os.access(importer, os.X_OK):
             raise ValueError("Built EPUB importer missing. Run ./build.sh again in the checkout.")
         cache = HERE / ".local"
@@ -119,7 +120,9 @@ def launch(frontend, profile, name, argv):
         subprocess.run([str(importer), "export", "--epub", str(epub), "--output", str(book_json),
                         "--store", str(cache / "identities")], check=True)
     command = [str(executable)]
-    if book_json is not None:
+    if epub is not None and frontend == "qt":
+        command.extend(["--epub", str(epub)])
+    elif book_json is not None:
         command.extend(["--book-json", str(book_json)])
     environment = os.environ.copy()
     if args.state_dir:

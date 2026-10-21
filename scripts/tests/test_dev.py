@@ -38,7 +38,7 @@ pathlib.Path(args[args.index('--output') + 1]).write_text(json.dumps({'epub': ar
                 body = '''import json, os, pathlib, sys
 args = sys.argv
 book = json.loads(pathlib.Path(args[args.index('--book-json')+1]).read_text()) if '--book-json' in args else None
-print(json.dumps({'book': book, 'cwd': os.getcwd(), 'qt_state': os.getenv('READER_STATE_DIR'), 'tauri_state': os.getenv('READER_SCRATCH')}))
+print(json.dumps({'book': book, 'args': args[1:], 'cwd': os.getcwd(), 'qt_state': os.getenv('READER_STATE_DIR'), 'tauri_state': os.getenv('READER_SCRATCH')}))
 '''
             self.executable(target, body)
 
@@ -62,7 +62,11 @@ print(json.dumps({'book': book, 'cwd': os.getcwd(), 'qt_state': os.getenv('READE
             result = subprocess.run([str(self.bin_dir / name), epub.name, "--state-dir", "my state"], cwd=elsewhere, env=self.env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             value = json.loads(result.stdout)
-            self.assertEqual(value["book"]["epub"], str(epub))
+            if name.endswith("-tauri"):
+                self.assertEqual(value["book"]["epub"], str(epub))
+            else:
+                self.assertEqual(value["args"], ["--epub", str(epub)])
+                self.assertIsNone(value["book"])
             self.assertEqual(value["cwd"], str(elsewhere))
             self.assertEqual(value[state_key], str(elsewhere / "my state"))
         missing = subprocess.run([str(self.bin_dir / "reader-test"), "missing.epub"], cwd=elsewhere, env=self.env, text=True, capture_output=True)

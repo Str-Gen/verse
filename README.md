@@ -15,7 +15,7 @@ verse "path/to/book.epub"
 verse-tauri "path/to/book.epub"       # after building Tauri with command links
 ```
 
-The default command directory is `~/.local/bin`. The build refuses to overwrite commands belonging to another checkout. Use `--bin-dir PATH` for an isolated installation, `--debug` for development, or `--no-link` to build without changing PATH commands. Launchers depend on this checkout and do not compile on launch.
+The default command directory is `~/.local/bin`. The build refuses to overwrite commands belonging to another checkout. Use `--bin-dir PATH` for an isolated installation, `--debug` for development, or `--no-link` to build without changing PATH commands. Launchers depend on this checkout and do not compile on launch. After source changes, run `./build.sh --frontend qt --no-link` to refresh the release binary used by `verse` and `verse-qt`. A plain `cargo build` only updates the debug binary.
 
 Use `--demo` for the synthetic EPUB, `--book-json PATH` for a normalized export, and `--state-dir PATH` for isolated reading state. With no input, each frontend reopens its last book.
 
