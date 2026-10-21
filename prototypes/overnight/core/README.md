@@ -49,9 +49,9 @@ Both native frontends link this crate. `session` supplies playback transitions, 
 
 Native records retain per-book preferences and store a core `SavedLocation` under `location`. Legacy frontend records migrate through a unique exact source match in an unchanged edition. Old short contexts never qualify for changed-edition passage recovery. A legacy chapter fallback requires both the saved stable ID and title; old Tauri records without a title stay unresolved. Recovery proposals do not write state, and reopening remains stopped.
 
-Both shells use the shared bounded JSON writer. State is capped at 1 MiB, while Tauri's book cache retains its separate 64 MiB limit. Writes use a unique temporary sibling, sync file contents, and atomically replace the destination. Unix files are created with mode 0600 and new parent directories with mode 0700. Failed writes clean up their temporary file. Malformed state is reported rather than replaced with defaults.
+Both shells use per-book checkpoints capped at 1 MiB. Writes use a unique temporary sibling, sync file contents, atomically replace the destination, and sync containing directories on Unix. Unix files are created with mode 0600 and new state directories with mode 0700. Recovery tries the current record, the previous valid record, then a separate chapter-start record. Damaged records remain available for diagnosis. Legacy whole-library records migrate without overwriting other books.
 
-State directories remain separate. There is no cross-process locking, directory fsync guarantee, or persisted playback clock/note excursion. Simultaneous-instance and power-loss recovery validation remain open. Feedback history is preserved as frontend preference data; its UI and semantics are not implemented by the core.
+State directories remain separate. Both shells hold a shared per-user OS lock for the open book identity, including when their scratch directories differ. Different books can open concurrently. Process death releases the lock. Canonical-path identity allocation is also locked to prevent concurrent first imports from generating different identities. Reopening remains stopped. Playback clocks and note excursions are not persisted.
 
 ## Verse typography and XML
 
@@ -67,7 +67,7 @@ Repetition, small dimensions and empty alt text alone never justify skipping. An
 
 ## Bounds and verification
 
-Defaults cap compressed input at 64 MiB, 4096 ZIP entries, 16 MiB per expanded entry, 128 MiB actual total expansion, 500,000 nodes per XML document, depth 128, four million publication text scalars and 40 million pixels per image. There is no cumulative image-pixel budget. ZIP reads enforce actual expansion and reject mismatched size metadata, duplicate entries and unsafe archive paths. Bounded internal XML entities are accepted; external entities are never resolved. Image decoder allocation limits are best-effort; per-image dimensions are checked explicitly. These bounds are not an OS sandbox or a proven execution-time ceiling.
+Defaults cap compressed input at 64 MiB, 4096 ZIP entries, 16 MiB per expanded entry, 128 MiB actual total expansion, 500,000 nodes per XML document, depth 128, 128 million publication text scalars and 40 million pixels per image. There is no cumulative image-pixel budget. ZIP reads enforce actual expansion and reject mismatched size metadata, duplicate entries and unsafe archive paths. Bounded internal XML entities are accepted; external entities are never resolved. Image decoder allocation limits are best-effort; per-image dimensions are checked explicitly. These bounds are not an OS sandbox or a proven execution-time ceiling.
 
 JPEG, PNG, WebP, GIF, AVIF, BMP and TIFF are decoded. GIF, AVIF, BMP and TIFF are exported as PNG for consistent rendering in both frontends. GIF/TIFF/AVIF inspection and conversion use the first image/frame. Building AVIF support requires `pkg-config` and libdav1d development files.
 
@@ -87,3 +87,15 @@ cargo build --locked -j 2
 See [REPORT.md](REPORT.md) for executed results and [fixtures/README.md](fixtures/README.md) for independent expected text and source behavior.
 
 The `experience` module owns preparation/ramp constants and the native timing policy. `vocabulary` launches the shared Python worker in `vocabulary/`, reusing the accepted capture, asynchronous ranking, SQLite storage and offline dictionary implementation. The worker maps normalized source spans back to paragraph coordinates, preserving split-compound coverage and sentence context. Native adapters record actual main-text exposure, excluding preparation and pauses. See `../integration/README.md` for runtime configuration and checks.
+
+## Disk-backed native reading
+
+CLI `export` and `demo`, used by the native launch scripts, stage one XHTML document at a time beside the output file. ZIP validation and revision hashing use fixed buffers. The aggregate `import_epub` API remains available for diagnostic and source-verification commands.
+
+`book_store::DiskBook` streams normalized JSON into indexed files under `XDG_CACHE_HOME/quiet-reader/book-spools`, with `HOME/.cache` as fallback. A reusable text buffer reads the current 512-piece window with 128 pieces of backward overlap. Both native renderers replace their old text, source maps and playback plans when changing windows. Vocabulary replaces its active text window while retaining captured evidence in SQLite. OS leases protect live spools; subsequent opens remove abandoned spools after a crash.
+
+Image resources are separate from text windows. The working set contains at most two preceding images, the current image when selected, and two following images. Images are prepared at a maximum 1600-pixel edge. Qt decodes through a single asynchronous worker; Tauri predecodes the nearby images and drops old image references.
+
+Bounds apply to bytes as well as piece counts: 16 KiB per serialized piece, 2 MiB of visible context, and 1 MiB of aggregate note records per window. Notes exceeding that budget show an explicit unsupported-content marker. Import still holds one XHTML DOM at a time, bounded by the 16 MiB expanded-entry limit. A normalized JSON block or resource is also decoded as a unit during indexing. These are import-time bounds, not a claim of constant memory regardless of document structure.
+
+See `../integration/RELIABILITY.md` for verification and remaining limitations.

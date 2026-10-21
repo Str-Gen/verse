@@ -88,7 +88,7 @@ Playback includes sentence/paragraph pauses and a fixed center guide. It does no
 
 The JSON adapter validates structure but does not independently verify source addresses against an EPUB. It trusts the core's decoded-source semantics. Changed editions use chapter IDs to offer the chapter start, with confirmation. Import errors keep the current book. Startup errors are reported, but automatic repair of corrupted scratch JSON is not implemented.
 
-Native persistence writes on position changes; close-during-write durability and power-loss behavior remain unverified. Only one process should use a scratch directory at a time. See REPORT.md for measured results, platform-specific launch constraints and remaining untested gates. See PORTS.md for official-source porting steps; Windows, macOS, Android and iOS are not claimed to work.
+Native persistence coalesces position changes and checkpoints active playback every two seconds. Each book has independent current, backup, and chapter records. Both native shells share per-book process locks. Different books can use the same scratch directory concurrently; WebKit profiles are isolated per process. See REPORT.md for measured results, platform-specific launch constraints and remaining untested gates. See PORTS.md for official-source porting steps; Windows, macOS, Android and iOS are not claimed to work.
 
 ## Integrated core launcher
 

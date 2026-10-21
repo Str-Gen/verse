@@ -23,7 +23,7 @@ For the existing build-and-run development workflow:
 ./prototypes/overnight/tauri/run.sh --demo
 ```
 
-Both commands build the same pinned Rust core, export its synthetic EPUB, build the selected frontend, and launch it. Use `--epub /absolute/path/book.epub` to import a local DRM-free EPUB or `--book-json /absolute/path/export.json` to open an existing export. Input paths are resolved before changing directories. With no arguments the frontend retains its own last-book behavior. Run only one instance per frontend storage directory.
+Both commands build the same pinned Rust core, export its synthetic EPUB, build the selected frontend, and launch it. Use `--epub /absolute/path/book.epub` to import a local DRM-free EPUB or `--book-json /absolute/path/export.json` to open an existing export. Input paths are resolved before changing directories. With no arguments the frontend retains its own last-book behavior. Different books can run concurrently, including across Qt and Tauri. A shared per-book OS lock rejects a second instance of the same book.
 
 `export.sh` exposes the core CLI unchanged. `launch.sh` owns import and the persistent canonical-path identity store in `.local/identities`. Exports live under `.local` with a filename derived from the EPUB path. Replacing the bytes at that path retains book identity while changing revision. The two renderer projects remain separate Cargo projects; there is one EPUB importer and reusable Rust library in `../core`. Both native frontends link the shared Rust application policy for playback transitions, recovery, and source-anchor persistence. EPUB import still uses the versioned JSON process boundary.
 
@@ -65,3 +65,5 @@ Images already normalized GIF, AVIF, BMP and TIFF to PNG before this work. Both 
 
 
 The legacy independent export oracle, source-path adapter, unused UI trace framework and stale CSS/SVG expectations have been removed. Recovery fixtures and process measurement remain self-contained here. Historical reports describe the earlier runs; their deleted commands are not current verification instructions.
+
+See [Reliability and memory verification](RELIABILITY.md) for the disk-backed reader, recovery tests and measured memory bounds.

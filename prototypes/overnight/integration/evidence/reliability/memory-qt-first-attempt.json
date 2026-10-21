@@ -1,0 +1,407 @@
+{
+  "timestamp": "2026-10-21T14:45:45.507181+00:00",
+  "frontend": "qt",
+  "binary": "/home/strgenix/speedreading/overnight-20261021/worktrees/integration/prototypes/overnight/qt/target/debug/overnight-qt-reader",
+  "binary_sha256": "e8b3fd65e8f0a5b8d6fd304390b1610d0a24ae6c58261b039c129d6d92f02d27",
+  "binary_bytes": 160806504,
+  "runs_per_size": 5,
+  "sample_interval_seconds": 0.05,
+  "results": [
+    {
+      "attempt": 0,
+      "size": "small",
+      "passed": false,
+      "exit_code": 1,
+      "command": [
+        "/home/strgenix/speedreading/overnight-20261021/worktrees/integration/prototypes/overnight/qt/target/debug/overnight-qt-reader",
+        "--book-json",
+        "/home/strgenix/speedreading/overnight-20261021/worktrees/integration/prototypes/overnight/integration/evidence/reliability/native-memory-k7bl6ocw/small.json"
+      ],
+      "timed_out": false,
+      "completed_seeks": 0,
+      "frontend_result": null,
+      "reading_started_seconds": 1.2012502340003266,
+      "elapsed_seconds": 1.336,
+      "lifecycle": {
+        "samples": 20,
+        "tree_peak_pss_kib": 83403,
+        "host_at_tree_peak_pss_kib": 66633,
+        "children_at_tree_peak_pss_kib": 16770,
+        "host_peak_pss_kib": 66633,
+        "children_peak_pss_kib": 16770,
+        "max_tree_threads": 10,
+        "incomplete_samples": 0
+      },
+      "reading": {
+        "samples": 2,
+        "tree_peak_pss_kib": 83403,
+        "host_at_tree_peak_pss_kib": 66633,
+        "children_at_tree_peak_pss_kib": 16770,
+        "host_peak_pss_kib": 66633,
+        "children_peak_pss_kib": 16770,
+        "max_tree_threads": 10,
+        "incomplete_samples": 0
+      },
+      "samples": [
+        {
+          "seconds": 0.001,
+          "phase": "startup",
+          "host_pss_kib": 13534,
+          "children_pss_kib": 0,
+          "tree_pss_kib": 13534,
+          "tree_rss_kib": 33040,
+          "measured_processes": 1,
+          "tree_threads": 1,
+          "process_names": [
+            "overnight-qt-re"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.0665,
+          "phase": "startup",
+          "host_pss_kib": 42111,
+          "children_pss_kib": 0,
+          "tree_pss_kib": 42111,
+          "tree_rss_kib": 108168,
+          "measured_processes": 1,
+          "tree_threads": 9,
+          "process_names": [
+            "overnight-qt-re"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.1329,
+          "phase": "startup",
+          "host_pss_kib": 60667,
+          "children_pss_kib": 0,
+          "tree_pss_kib": 60667,
+          "tree_rss_kib": 132696,
+          "measured_processes": 1,
+          "tree_threads": 9,
+          "process_names": [
+            "overnight-qt-re"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.1996,
+          "phase": "startup",
+          "host_pss_kib": 60667,
+          "children_pss_kib": 0,
+          "tree_pss_kib": 60667,
+          "tree_rss_kib": 132696,
+          "measured_processes": 1,
+          "tree_threads": 9,
+          "process_names": [
+            "overnight-qt-re"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.2656,
+          "phase": "startup",
+          "host_pss_kib": 60679,
+          "children_pss_kib": 0,
+          "tree_pss_kib": 60679,
+          "tree_rss_kib": 132708,
+          "measured_processes": 1,
+          "tree_threads": 9,
+          "process_names": [
+            "overnight-qt-re"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.3318,
+          "phase": "startup",
+          "host_pss_kib": 61579,
+          "children_pss_kib": 0,
+          "tree_pss_kib": 61579,
+          "tree_rss_kib": 133608,
+          "measured_processes": 1,
+          "tree_threads": 9,
+          "process_names": [
+            "overnight-qt-re"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.3983,
+          "phase": "startup",
+          "host_pss_kib": 62389,
+          "children_pss_kib": 15559,
+          "tree_pss_kib": 77948,
+          "tree_rss_kib": 160752,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.466,
+          "phase": "startup",
+          "host_pss_kib": 66107,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 82617,
+          "tree_rss_kib": 165776,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.5333,
+          "phase": "startup",
+          "host_pss_kib": 66107,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 82617,
+          "tree_rss_kib": 165776,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.6005,
+          "phase": "startup",
+          "host_pss_kib": 66267,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 82777,
+          "tree_rss_kib": 165936,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.6678,
+          "phase": "startup",
+          "host_pss_kib": 66557,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 83067,
+          "tree_rss_kib": 166576,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.7347,
+          "phase": "startup",
+          "host_pss_kib": 66557,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 83067,
+          "tree_rss_kib": 166576,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.8014,
+          "phase": "startup",
+          "host_pss_kib": 66557,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 83067,
+          "tree_rss_kib": 166576,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.8685,
+          "phase": "startup",
+          "host_pss_kib": 66557,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 83067,
+          "tree_rss_kib": 166576,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 0.9353,
+          "phase": "startup",
+          "host_pss_kib": 66557,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 83067,
+          "tree_rss_kib": 166576,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 1.0019,
+          "phase": "startup",
+          "host_pss_kib": 66557,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 83067,
+          "tree_rss_kib": 166576,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 1.0682,
+          "phase": "startup",
+          "host_pss_kib": 66557,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 83067,
+          "tree_rss_kib": 166576,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 1.1347,
+          "phase": "startup",
+          "host_pss_kib": 66557,
+          "children_pss_kib": 16510,
+          "tree_pss_kib": 83067,
+          "tree_rss_kib": 166576,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 1.2013,
+          "phase": "reading",
+          "host_pss_kib": 66633,
+          "children_pss_kib": 16770,
+          "tree_pss_kib": 83403,
+          "tree_rss_kib": 167096,
+          "measured_processes": 2,
+          "tree_threads": 10,
+          "process_names": [
+            "overnight-qt-re",
+            "python3"
+          ],
+          "unavailable_pids": []
+        },
+        {
+          "seconds": 1.2687,
+          "phase": "reading",
+          "host_pss_kib": 62808,
+          "children_pss_kib": 0,
+          "tree_pss_kib": 62808,
+          "tree_rss_kib": 135956,
+          "measured_processes": 1,
+          "tree_threads": 8,
+          "process_names": [
+            "overnight-qt-re"
+          ],
+          "unavailable_pids": []
+        }
+      ],
+      "environment": {
+        "DISPLAY": ":0",
+        "WAYLAND_DISPLAY": "wayland-1",
+        "GDK_BACKEND": "wayland,x11,*",
+        "QT_QPA_PLATFORM": "offscreen",
+        "QT_QUICK_BACKEND": "software",
+        "WEBKIT_DISABLE_DMABUF_RENDERER": "1"
+      },
+      "load_average": [
+        3.865234375,
+        4.9521484375,
+        4.88916015625
+      ],
+      "log_tail": "READER_PLATFORM=offscreen\n"
+    }
+  ],
+  "conditions": [
+    "Same provided binary for both fixture sizes; no builds or compiler flags changed.",
+    "Text-only synthetic fixtures; images and large footnotes are not measured.",
+    "Private fresh reading state per run; OS/filesystem cache is uncontrolled and warms over alternating runs.",
+    "Reading starts after the frontend reports startup/spooling complete; at least 40 distant seeks must pass.",
+    "PSS apportions shared pages across processes; recursive children are included. Sampled peaks can miss brief allocation peaks.",
+    "Qt defaults to offscreen/software rendering; the actual environment is recorded. Do not infer a toolkit comparison.",
+    "No historical baseline or speedup is claimed. Median/range describe observed scaling in this environment."
+  ],
+  "fixtures": {
+    "small": {
+      "pieces": 5000,
+      "bytes": 968257,
+      "sha256": "e9bb6ee8f9fba5ea2a30cc59ad325f1f22b2164b243386bbd9e95a776f969ad4",
+      "book_id": "memory-synthetic-5000-2371cfeb-fecf-462e-a6cb-9fedada01379"
+    },
+    "large": {
+      "pieces": 50000,
+      "bytes": 9877338,
+      "sha256": "1792b23b22d5287680de46d29de824bf8be662b6130ba5f032870565cf8e851e",
+      "book_id": "memory-synthetic-50000-cbbb4630-b2ca-45bd-9fad-4edc46207d37"
+    }
+  },
+  "summary": {
+    "small": {
+      "successful_runs": 0,
+      "lifecycle": {
+        "tree_peak_pss_kib": null,
+        "host_peak_pss_kib": null,
+        "children_peak_pss_kib": null
+      },
+      "reading": {
+        "tree_peak_pss_kib": null,
+        "host_peak_pss_kib": null,
+        "children_peak_pss_kib": null
+      }
+    },
+    "large": {
+      "successful_runs": 0,
+      "lifecycle": {
+        "tree_peak_pss_kib": null,
+        "host_peak_pss_kib": null,
+        "children_peak_pss_kib": null
+      },
+      "reading": {
+        "tree_peak_pss_kib": null,
+        "host_peak_pss_kib": null,
+        "children_peak_pss_kib": null
+      }
+    }
+  }
+}
