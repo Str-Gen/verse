@@ -15,7 +15,7 @@ use std::{
     sync::Mutex,
 };
 
-pub const WINDOW_PIECES: usize = 256;
+pub const WINDOW_PIECES: usize = 512;
 const MAX_RECORD: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
@@ -65,7 +65,7 @@ impl DiskBook {
         result
     }
     fn build(path: &Path, root: PathBuf) -> Result<Self> {
-        for name in ["blocks", "notes", "resources"] {
+        for name in ["blocks", "runs", "notes", "resources"] {
             fs::create_dir(root.join(name))?;
         }
         let mut sink = Sink {
@@ -93,10 +93,30 @@ impl DiskBook {
             chapter_starts: Vec::new(),
             buffer: Mutex::new(Vec::new()),
         };
+        let mut starts: BTreeMap<String, Option<usize>> = result
+            .metadata
+            .chapters
+            .iter()
+            .map(|c| (c.start_piece.clone(), None))
+            .collect();
+        let reader = BufReader::new(File::open(result.root.join("pieces"))?);
+        for (index, piece) in serde_json::Deserializer::from_reader(reader)
+            .into_iter::<Piece>()
+            .enumerate()
+        {
+            let piece = piece.map_err(invalid)?;
+            if let Some(start) = starts.get_mut(&piece.id)
+                && start.replace(index).is_some()
+            {
+                return Err(invalid("duplicate chapter piece"));
+            }
+        }
         for chapter in &result.metadata.chapters {
             result.chapter_starts.push(
-                result
-                    .find_piece(&chapter.start_piece)?
+                starts
+                    .get(&chapter.start_piece)
+                    .copied()
+                    .flatten()
                     .ok_or_else(|| invalid("chapter references missing piece"))?,
             );
         }
@@ -204,16 +224,43 @@ impl DiskBook {
                 at: 0,
             });
         }
-        if saved.get("revision").and_then(Value::as_str) == Some(self.metadata.revision.as_str())
+        let revision = saved
+            .get("revision")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| invalid("saved record has no valid revision"))?;
+        if revision == self.metadata.revision
             && let Some(sources) = location.get("sources")
         {
             let sources: Vec<SourceSpan> =
                 serde_json::from_value(sources.clone()).map_err(invalid)?;
-            if let Some(at) = self.find_source(&sources)? {
+            let text = location.get("text").and_then(Value::as_str);
+            if let Some(at) = self.find(|p| {
+                !sources.is_empty() && p.sources == sources && text.is_none_or(|t| p.text == t)
+            })? {
                 return Ok(session::Resume {
                     kind: "exact".into(),
                     at,
                 });
+            }
+            if let Some(first) = sources.first()
+                && let Some(at) = self.find(|p| {
+                    p.sources.iter().any(|s| {
+                        s.document == first.document
+                            && s.node == first.node
+                            && s.offset <= first.offset
+                            && first.offset < s.offset.saturating_add(s.length)
+                    })
+                })?
+            {
+                let window = self.load_window(at)?;
+                let resume = session::restore(&window.book, Some(saved)).map_err(invalid)?;
+                if resume.kind == "exact" {
+                    return Ok(session::Resume {
+                        kind: resume.kind,
+                        at: window.start + resume.at,
+                    });
+                }
             }
         }
         let chapter = location
@@ -263,27 +310,25 @@ impl DiskBook {
             let mut block: Block = self.read(&path)?;
             let original = std::mem::take(&mut block.runs);
             let pieces: Vec<_> = book.pieces.iter().filter(|p| p.block_id == id).collect();
-            for piece in &pieces {
-                if piece.kind != "word" {
-                    continue;
+            let visible: Vec<_> = original
+                .iter()
+                .enumerate()
+                .filter_map(|(i, run)| {
+                    (original.len() <= 8
+                        || run.sources.iter().any(|r| {
+                            pieces
+                                .iter()
+                                .any(|p| p.sources.iter().any(|s| overlaps(r, s)))
+                        }))
+                    .then_some(i)
+                })
+                .collect();
+            if let (Some(first), Some(last)) = (visible.first(), visible.last()) {
+                for i in first.saturating_sub(1)
+                    ..=last.saturating_add(1).min(original.len().saturating_sub(1))
+                {
+                    block.runs.push(self.named("runs", &format!("{id}:{i}"))?);
                 }
-                let style = original.iter().find(|r| {
-                    r.sources.iter().any(|r| {
-                        piece.sources.iter().any(|s| {
-                            r.document == s.document
-                                && r.node == s.node
-                                && s.offset >= r.offset
-                                && s.offset < r.offset.saturating_add(r.length)
-                        })
-                    })
-                });
-                block.runs.push(crate::Run {
-                    text: format!("{} ", piece.text),
-                    sources: piece.sources.clone(),
-                    emphasis: style.is_some_and(|r| r.emphasis),
-                    strong: style.is_some_and(|r| r.strong),
-                    note_id: piece.note_id.clone(),
-                });
             }
             let document = pieces
                 .first()
@@ -302,6 +347,11 @@ impl DiskBook {
                 .blocks
                 .sort_by_key(|b| book.pieces.iter().position(|p| p.block_id == b.id));
         }
+        book.documents.sort_by_key(|d| {
+            d.blocks
+                .first()
+                .and_then(|b| book.pieces.iter().position(|p| p.block_id == b.id))
+        });
         book.chapters.clear();
         for (i, chapter) in self.metadata.chapters.iter().enumerate() {
             let chapter_start = self.chapter_starts[i];
@@ -334,6 +384,14 @@ impl DiskBook {
                 book.notes.push(self.read(&path)?);
             }
         }
+        Ok(BookWindow {
+            book,
+            start,
+            total: self.total,
+        })
+    }
+    pub fn image_resources(&self, at: usize) -> Result<Vec<Resource>> {
+        let mut result = Vec::new();
         let mut images = BufReader::new(File::open(self.root.join("images"))?);
         let mut before = std::collections::VecDeque::new();
         let mut after = Vec::new();
@@ -352,7 +410,7 @@ impl DiskBook {
                 }
             } else {
                 after.push(index);
-                if after.len() == 3 {
+                if after.len() == if after.first() == Some(&at) { 3 } else { 2 } {
                     break;
                 }
             }
@@ -368,22 +426,49 @@ impl DiskBook {
         for id in resources {
             let path = self.root.join("resources").join(key(&id));
             if path.exists() {
-                book.resources.push(
+                result.push(
                     serde_json::from_reader(BufReader::new(File::open(&path)?)).map_err(invalid)?,
                 );
             }
         }
-        Ok(BookWindow {
-            book,
-            start,
-            total: self.total,
-        })
+        Ok(result)
     }
 }
 impl Drop for DiskBook {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+/// Keep decoded image memory bounded independently of text windows.
+pub(crate) fn prepare_resource(mut resource: Resource) -> Result<Resource> {
+    use base64::Engine;
+    let Some((_, encoded)) = resource.data_url.split_once(",") else {
+        return Err(invalid("invalid image data URL"));
+    };
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(invalid)?;
+    let reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format()?;
+    let (width, height) = reader.into_dimensions().map_err(invalid)?;
+    if u64::from(width) * u64::from(height) > 40_000_000 {
+        return Err(Error::Limit("image pixels"));
+    }
+    if width <= 1600 && height <= 1600 {
+        return Ok(resource);
+    }
+    let decoded = image::load_from_memory(&bytes).map_err(invalid)?;
+    let scaled = decoded.thumbnail(1600, 1600);
+    let mut output = std::io::Cursor::new(Vec::new());
+    scaled
+        .write_to(&mut output, image::ImageFormat::Png)
+        .map_err(invalid)?;
+    resource.media_type = "image/png".into();
+    resource.data_url = format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(output.into_inner())
+    );
+    Ok(resource)
 }
 
 struct Sink<'a> {
@@ -436,11 +521,64 @@ impl Sink<'_> {
         Ok(())
     }
     fn block(&mut self, mut block: Block) -> Result<()> {
-        for run in &mut block.runs {
-            run.text.clear();
+        let mut chunks = Vec::new();
+        for run in std::mem::take(&mut block.runs) {
+            if run.text.is_empty() {
+                write_json(
+                    &self
+                        .root
+                        .join("runs")
+                        .join(key(&format!("{}:{}", block.id, chunks.len()))),
+                    &run,
+                )?;
+                chunks.push(run);
+                continue;
+            }
+            let mut chars = run.text.chars();
+            let mut start = 0usize;
+            loop {
+                let text: String = chars.by_ref().take(2048).collect();
+                if text.is_empty() {
+                    break;
+                }
+                let end = start + text.chars().count();
+                let mut chunk = run.clone();
+                chunk.text = text;
+                chunk.sources.clear();
+                let mut position = 0usize;
+                for source in &run.sources {
+                    let source_end = position + source.length;
+                    let left = start.max(position);
+                    let right = end.min(source_end);
+                    if left < right {
+                        let mut source = source.clone();
+                        source.offset += left - position;
+                        source.length = right - left;
+                        chunk.sources.push(source);
+                    }
+                    position = source_end;
+                }
+                write_json(
+                    &self
+                        .root
+                        .join("runs")
+                        .join(key(&format!("{}:{}", block.id, chunks.len()))),
+                    &chunk,
+                )?;
+                chunk.text.clear();
+                chunks.push(chunk);
+                start = end;
+            }
         }
+        block.runs = chunks;
         write_json(&self.root.join("blocks").join(key(&block.id)), &block)
     }
+}
+fn overlaps(a: &SourceSpan, b: &SourceSpan) -> bool {
+    a.document == b.document
+        && a.node == b.node
+        && a.offset < b.offset.saturating_add(b.length)
+        && b.offset < a.offset.saturating_add(a.length)
 }
 fn empty_book() -> Book {
     Book {
@@ -514,7 +652,10 @@ impl<'de> Visitor<'de> for BookSeed<'_, '_> {
                     std::marker::PhantomData,
                 ))?,
                 "resources" => a.next_value_seed(ArraySeed(
-                    |r: Resource| write_json(&self.0.root.join("resources").join(key(&r.id)), &r),
+                    |r: Resource| {
+                        let r = prepare_resource(r)?;
+                        write_json(&self.0.root.join("resources").join(key(&r.id)), &r)
+                    },
                     std::marker::PhantomData,
                 ))?,
                 _ => {
@@ -577,6 +718,58 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[test]
+    fn context_preserves_original_whitespace_styles_and_source_spans()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let path =
+            std::env::temp_dir().join(format!("disk-book-style-{}.json", uuid::Uuid::new_v4()));
+        let book = crate::import_epub(
+            Path::new("fixtures/complex.epub"),
+            "style-test",
+            &crate::ImportOptions::default(),
+        )?;
+        assert!(book.pieces.len() < WINDOW_PIECES);
+        write_json(&path, &book)?;
+        let disk = DiskBook::open(&path)?;
+        fs::remove_file(path)?;
+        let window = disk.load_window(0)?;
+        for block in window.book.documents.iter().flat_map(|d| &d.blocks) {
+            let original = book
+                .documents
+                .iter()
+                .flat_map(|d| &d.blocks)
+                .find(|b| b.id == block.id)
+                .ok_or("missing block")?;
+            assert_eq!(
+                serde_json::to_value(&block.runs)?,
+                serde_json::to_value(&original.runs)?
+            );
+        }
+        assert!(window.book.resources.is_empty());
+        assert!(disk.image_resources(0)?.len() <= 5);
+        Ok(())
+    }
+    #[test]
+    fn oversized_images_are_prepared_to_a_bounded_display_size()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use base64::Engine;
+        let raster = image::DynamicImage::new_rgb8(3200, 2400);
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        raster.write_to(&mut bytes, image::ImageFormat::Png)?;
+        let resource = prepare_resource(Resource {
+            id: "large".into(),
+            media_type: "image/png".into(),
+            data_url: format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(bytes.into_inner())
+            ),
+        })?;
+        let (_, data) = resource.data_url.split_once(',').ok_or("missing payload")?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
+        let image = image::load_from_memory(&bytes)?;
+        assert_eq!((image.width(), image.height()), (1600, 1200));
+        Ok(())
+    }
+    #[test]
     fn distant_seek_capture_and_chapter_fallback_are_global()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
         let path =
@@ -615,10 +808,10 @@ mod tests {
         assert!(disk.metadata().pieces.is_empty());
         assert_eq!(disk.total_pieces(), 1500);
         let window = disk.load_window(1100)?;
-        assert_eq!(window.start, 1036);
-        assert_eq!(window.book.pieces.len(), 256);
-        assert_eq!(window.book.chapters[0].id, "c1000");
-        assert_eq!(window.book.chapters[0].start_piece, "p1036");
+        assert_eq!(window.start, 972);
+        assert_eq!(window.book.pieces.len(), 512);
+        assert_eq!(window.book.chapters[0].id, "c500");
+        assert_eq!(window.book.chapters[0].start_piece, "p972");
         let saved = disk.capture(1100, &json!({"speed":400}))?;
         assert_eq!(disk.restore(Some(&saved))?.at, 1100);
         let mut changed = saved;

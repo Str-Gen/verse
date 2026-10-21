@@ -28,7 +28,7 @@ impl Default for Limits {
             xml_nodes: 500_000,
             xml_depth: 128,
             image_pixels: 40_000_000,
-            text_scalars: 4_000_000,
+            text_scalars: 128 * 1024 * 1024,
         }
     }
 }
