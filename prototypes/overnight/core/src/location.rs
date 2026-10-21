@@ -1,7 +1,7 @@
 //! Local publication identity and source-based reading locations.
 //!
-//! Store roots are caller supplied. This prototype assumes one writer per publication;
-//! atomic replacement prevents partially written JSON, but does not provide locking.
+//! Store roots are caller supplied. Native adapters hold a publication lock while
+//! checkpointing; atomic replacement syncs both file contents and directory entries.
 use crate::{Book, SourceSpan};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -362,7 +362,17 @@ pub fn write_json_with_limit<T: Serialize>(
             use std::os::unix::fs::DirBuilderExt;
             builder.mode(0o700);
         }
+        let missing: Vec<_> = parent
+            .ancestors()
+            .take_while(|directory| !directory.exists())
+            .collect();
         builder.create(parent)?;
+        // Each newly created directory name must survive a power loss as well.
+        for directory in missing.iter().rev() {
+            if let Some(ancestor) = directory.parent().filter(|p| !p.as_os_str().is_empty()) {
+                fs::File::open(ancestor)?.sync_all()?;
+            }
+        }
     }
     let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
     let mut options = fs::OpenOptions::new();

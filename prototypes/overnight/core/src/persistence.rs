@@ -132,8 +132,10 @@ pub fn save_record(
         // Keep the first damaged record without growing an unbounded evidence archive.
         let damaged = path.with_extension("damaged.json");
         if !damaged.exists() {
-            fs::copy(&path, &damaged)?;
-            fs::File::open(&damaged)?.sync_all()?;
+            fs::rename(&path, &damaged)?;
+            if let Some(parent) = path.parent() {
+                fs::File::open(parent)?.sync_all()?;
+            }
         }
     }
     write_json(&path.with_extension("chapter.json"), chapter)?;
