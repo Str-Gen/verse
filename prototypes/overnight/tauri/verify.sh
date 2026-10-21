@@ -20,3 +20,5 @@ assert result['passed'], result['errors']
 print(f"Native run {sys.argv[2]}: {len(result['checks'])} checks passed")
 PY
 done
+
+python tests/theme.py

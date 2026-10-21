@@ -1,4 +1,5 @@
 //! Narrow adapter over version-1 normalized book JSON. No EPUB or publisher code executes here.
+mod theme;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -23,6 +24,12 @@ struct Boot {
     book: Value,
     state: Option<Value>,
     self_test: bool,
+    theme_test: bool,
+}
+
+#[tauri::command]
+fn read_theme() -> std::collections::BTreeMap<String, String> {
+    theme::read()
 }
 
 fn read_json(path: &Path, limit: u64) -> Result<Value, String> {
@@ -210,6 +217,7 @@ fn boot(store: tauri::State<'_, Store>) -> Result<Boot, String> {
         book,
         state,
         self_test: store.self_test,
+        theme_test: store.self_test && env::var_os("READER_THEME_TEST").is_some(),
     })
 }
 
@@ -353,6 +361,7 @@ fn main() {
         .manage(store)
         .invoke_handler(tauri::generate_handler![
             boot,
+            read_theme,
             import_book,
             save_state,
             test_result

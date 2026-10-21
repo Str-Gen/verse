@@ -1,3 +1,4 @@
+import { startTheme } from './theme.js';
 import { validateBook, sourceIndex, runSegments, chapterAt, position, restore } from './model.js';
 const $ = id => document.getElementById(id);
 const native = window.__TAURI__?.core;
@@ -291,6 +292,7 @@ export const reader = {
   flush: () => writeQueue,
 };
 async function boot() {
+  await startTheme(native);
   let result;
   if (native) result = await native.invoke('boot');
   else {
@@ -302,7 +304,7 @@ async function boot() {
   startup = JSON.parse(JSON.stringify(saved));
   loadBook(result.book);
   if (result.self_test || new URLSearchParams(location.search).has('self-test')) {
-    const { runTests } = await import('./self-test.js');
+    const { runTests } = await import(result.theme_test ? './theme-test.js' : './self-test.js');
     const report = await runTests(reader);
     await writeQueue;
     if (native) await native.invoke('test_result', { result: report });

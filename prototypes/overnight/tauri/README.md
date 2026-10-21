@@ -93,3 +93,11 @@ Native persistence writes on position changes; close-during-write durability and
 ## Integrated core launcher
 
 `./prototypes/overnight/tauri/run.sh --demo` now regenerates the shared Rust core's synthetic EPUB export. `--epub PATH` imports a local EPUB through the same core CLI and identity store used by Qt. `--book-json PATH` still opens an existing export, and no arguments retain last-book behavior. See `../integration/README.md` for reproducible integrated checks and known schema boundaries. The native suite also consumes the independent worker's hidden-text/astral-Unicode export. Worker REPORT.md is historical evidence from before integration.
+
+## Omarchy colors
+
+On Linux, the native adapter reads `~/.local/state/omarchy/current/theme/colors.toml`. Background, foreground, accent and selection colors follow the Qt reader's precedence. `selection` precedes `selection_background`; selected text uses `selection_foreground`, then `bright_foreground`, then the normal foreground. The reader refreshes once per second, reopening the path to handle file replacement, theme symlink changes and initially missing directories. `READER_THEME_FILE` overrides the path for isolated tests. No desktop configuration is written.
+
+Absent or invalid colors fall back independently to light/dark defaults. The file's `mode` wins, then background brightness, then WebKit's system color preference. Other platforms use the system preference unless an override file is supplied. This implements palette updates; Qt's portal-based text-scale adapter is not yet present in Tauri.
+
+`python tests/theme.py` drives a native WebKitGTK instance through temporary-file creation, atomic replacement, symlink switching, removal and recreation. It verifies the palette updates without restarting the reader. `verify.sh` includes this check.
