@@ -37,6 +37,57 @@ pub struct DiskBook {
     total: usize,
     chapter_starts: Vec<usize>,
     buffer: Mutex<Vec<u8>>,
+    reader: Mutex<PieceReader>,
+}
+
+#[derive(Debug)]
+struct PieceReader {
+    index: File,
+    pieces: BufReader<File>,
+    buffer: Vec<u8>,
+}
+
+impl PieceReader {
+    fn seek_index(&mut self, index: usize) -> Result<()> {
+        let offset = (index as u64)
+            .checked_mul(16)
+            .ok_or(Error::Limit("piece index"))?;
+        self.index.seek(SeekFrom::Start(offset))?;
+        Ok(())
+    }
+
+    fn read_piece(&mut self, entry: &[u8; 16], previous_end: Option<u64>) -> Result<(Piece, u64)> {
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(&entry[..8]);
+        let offset = u64::from_le_bytes(bytes);
+        bytes.copy_from_slice(&entry[8..]);
+        let length = u64::from_le_bytes(bytes);
+        if length > MAX_PIECE_BYTES as u64 {
+            return Err(Error::Limit("disk piece record"));
+        }
+        let end = offset
+            .checked_add(length)
+            .ok_or(Error::Limit("piece offset"))?;
+        match previous_end {
+            Some(previous) if previous == offset => {}
+            Some(previous) if previous.checked_add(1) == Some(offset) => {
+                // Spool records are separated by one newline; retain buffered following records.
+                self.pieces.seek_relative(1)?;
+            }
+            _ => {
+                self.pieces.seek(SeekFrom::Start(offset))?;
+            }
+        }
+        self.buffer.resize(length as usize, 0);
+        if let Err(error) = self.pieces.read_exact(&mut self.buffer) {
+            return if error.kind() == std::io::ErrorKind::UnexpectedEof {
+                Err(invalid("truncated disk book"))
+            } else {
+                Err(error.into())
+            };
+        }
+        Ok((serde_json::from_slice(&self.buffer).map_err(invalid)?, end))
+    }
 }
 
 fn invalid(error: impl fmt::Display) -> Error {
@@ -151,7 +202,13 @@ impl DiskBook {
         sink.images.flush()?;
         let total = sink.total;
         drop(sink);
+        let reader = Mutex::new(PieceReader {
+            index: File::open(root.join("index"))?,
+            pieces: BufReader::new(File::open(root.join("pieces"))?),
+            buffer: Vec::new(),
+        });
         let mut result = Self {
+            reader,
             root,
             _lease: lease,
             metadata,
@@ -218,35 +275,16 @@ impl DiskBook {
         if index >= self.total {
             return Err(invalid("piece index outside book"));
         }
-        let mut offsets = File::open(self.root.join("index"))?;
-        offsets.seek(SeekFrom::Start(
-            (index as u64)
-                .checked_mul(16)
-                .ok_or(Error::Limit("piece index"))?,
-        ))?;
-        let mut bytes = [0u8; 16];
-        offsets.read_exact(&mut bytes)?;
-        let mut a = [0u8; 8];
-        a.copy_from_slice(&bytes[..8]);
-        let offset = u64::from_le_bytes(a);
-        a.copy_from_slice(&bytes[8..]);
-        let length = u64::from_le_bytes(a);
-        if length > MAX_PIECE_BYTES as u64 {
-            return Err(Error::Limit("disk piece record"));
-        }
-        let mut data = File::open(self.root.join("pieces"))?;
-        data.seek(SeekFrom::Start(offset))?;
-        let mut buffer = self
-            .buffer
+        let mut reader = self
+            .reader
             .lock()
-            .map_err(|_| invalid("book buffer poisoned"))?;
-        buffer.clear();
-        data.take(length).read_to_end(&mut buffer)?;
-        if buffer.len() as u64 != length {
-            return Err(invalid("truncated disk book"));
-        }
-        serde_json::from_slice(&buffer).map_err(invalid)
+            .map_err(|_| invalid("book reader poisoned"))?;
+        reader.seek_index(index)?;
+        let mut entry = [0; 16];
+        reader.index.read_exact(&mut entry)?;
+        reader.read_piece(&entry, None).map(|(piece, _)| piece)
     }
+
     pub fn find_piece(&self, id: &str) -> Result<Option<usize>> {
         self.find(|piece| piece.id == id)
     }
@@ -468,12 +506,27 @@ impl DiskBook {
         let start = at.saturating_sub(WINDOW_PIECES / 4);
         let end = start.saturating_add(WINDOW_PIECES).min(self.total);
         let mut book = self.metadata.clone();
-        for i in start..end {
-            book.pieces.push(self.piece(i)?);
+        if start < end {
+            let mut reader = self
+                .reader
+                .lock()
+                .map_err(|_| invalid("book reader poisoned"))?;
+            reader.seek_index(start)?;
+            let mut entries = [[0; 16]; WINDOW_PIECES];
+            let entries = &mut entries[..end - start];
+            reader.index.read_exact(entries.as_flattened_mut())?;
+            book.pieces.reserve(entries.len());
+            let mut previous_end = None;
+            for entry in entries {
+                let (piece, end) = reader.read_piece(entry, previous_end)?;
+                book.pieces.push(piece);
+                previous_end = Some(end);
+            }
         }
         let ids: BTreeSet<_> = book.pieces.iter().map(|p| p.block_id.clone()).collect();
         let mut documents: BTreeMap<String, Vec<Block>> = BTreeMap::new();
         let mut context_bytes = 0u64;
+        let mut boundary_blocks = None;
         for id in ids {
             let path = self.root.join("blocks").join(key(&id));
             if !path.exists() {
@@ -485,8 +538,23 @@ impl DiskBook {
             let mut block: Block = self.read(&path)?;
             let original = std::mem::take(&mut block.runs);
             let pieces: Vec<_> = book.pieces.iter().filter(|p| p.block_id == id).collect();
-            let clipped_start = start > 0 && self.piece(start - 1)?.block_id == id;
-            let clipped_end = end < self.total && self.piece(end)?.block_id == id;
+            let (previous, next) = match &boundary_blocks {
+                Some(blocks) => blocks,
+                None => boundary_blocks.insert((
+                    if start > 0 {
+                        Some(self.piece(start - 1)?.block_id)
+                    } else {
+                        None
+                    },
+                    if end < self.total {
+                        Some(self.piece(end)?.block_id)
+                    } else {
+                        None
+                    },
+                )),
+            };
+            let clipped_start = previous.as_ref() == Some(&id);
+            let clipped_end = next.as_ref() == Some(&id);
             let visible: Vec<_> = original
                 .iter()
                 .enumerate()
@@ -1024,6 +1092,51 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[test]
+    fn indexed_reads_reject_corrupt_and_truncated_records()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let path =
+            std::env::temp_dir().join(format!("disk-corruption-{}.json", uuid::Uuid::new_v4()));
+        let book = crate::import_epub(
+            Path::new("fixtures/complex.epub"),
+            "corruption",
+            &crate::ImportOptions::default(),
+        )?;
+        write_json(&path, &book)?;
+        let disk = DiskBook::open(&path)?;
+        fs::remove_file(path)?;
+        // Populate the reader before changing its backing files.
+        disk.load_window(0)?;
+        let index_path = disk.root.join("index");
+        let original = fs::read(&index_path)?;
+        let mut corrupt = original.clone();
+        corrupt[8..16].copy_from_slice(&(MAX_PIECE_BYTES as u64 + 1).to_le_bytes());
+        fs::write(&index_path, &corrupt)?;
+        assert!(matches!(
+            disk.piece(0),
+            Err(Error::Limit("disk piece record"))
+        ));
+        assert!(matches!(
+            disk.load_window(0),
+            Err(Error::Limit("disk piece record"))
+        ));
+        fs::write(&index_path, &original)?;
+        File::options()
+            .write(true)
+            .open(disk.root.join("pieces"))?
+            .set_len(0)?;
+        assert!(
+            matches!(disk.piece(0), Err(Error::Invalid(message)) if message == "truncated disk book")
+        );
+        assert!(
+            matches!(disk.load_window(0), Err(Error::Invalid(message)) if message == "truncated disk book")
+        );
+        fs::write(index_path, [])?;
+        assert!(disk.piece(0).is_err());
+        assert!(disk.load_window(0).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn source_less_events_and_image_chapter_checkpoints_are_durable()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
         let root =
@@ -1371,6 +1484,36 @@ mod tests {
         assert_eq!(disk.restore(Some(&changed))?.at, 1000);
         assert_eq!(disk.piece(1499)?.id, "p1499");
         assert!(disk.piece(1500).is_err());
+        std::thread::scope(|scope| -> Result<()> {
+            let mut readers = Vec::new();
+            for worker in 0..4 {
+                let disk = &disk;
+                let expected = &book.pieces;
+                readers.push(scope.spawn(move || -> Result<()> {
+                    for iteration in 0..32 {
+                        let at = (iteration * 7919 + worker * 317) % expected.len();
+                        let piece = disk.piece(at)?;
+                        assert_eq!(
+                            serde_json::to_value(piece).map_err(invalid)?,
+                            serde_json::to_value(&expected[at]).map_err(invalid)?
+                        );
+                        let window = disk.load_window(at)?;
+                        let end = window.start + window.book.pieces.len();
+                        assert_eq!(
+                            serde_json::to_value(&window.book.pieces).map_err(invalid)?,
+                            serde_json::to_value(&expected[window.start..end]).map_err(invalid)?
+                        );
+                    }
+                    Ok(())
+                }));
+            }
+            for reader in readers {
+                reader
+                    .join()
+                    .map_err(|_| invalid("reader thread panicked"))??;
+            }
+            Ok(())
+        })?;
         Ok(())
     }
 }

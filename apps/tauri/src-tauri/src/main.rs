@@ -47,52 +47,59 @@ fn nonempty(value: &Value, key: &str) -> bool {
 }
 
 #[derive(Deserialize)]
-struct ContractBook {
-    documents: Vec<Document>,
-    pieces: Vec<Piece>,
-    chapters: Vec<Chapter>,
+struct ContractBook<'a> {
+    #[serde(borrow)]
+    documents: Vec<Document<'a>>,
+    #[serde(borrow)]
+    pieces: Vec<Piece<'a>>,
+    #[serde(borrow)]
+    chapters: Vec<Chapter<'a>>,
 }
 #[derive(Deserialize)]
-struct Document {
-    id: String,
-    blocks: Vec<Block>,
+struct Document<'a> {
+    id: &'a str,
+    #[serde(borrow)]
+    blocks: Vec<Block<'a>>,
 }
 #[derive(Deserialize)]
-struct Block {
-    id: String,
-    kind: String,
-    runs: Vec<Run>,
+struct Block<'a> {
+    id: &'a str,
+    kind: &'a str,
+    #[serde(borrow)]
+    runs: Vec<Run<'a>>,
 }
 #[derive(Deserialize)]
-struct Run {
-    text: String,
-    sources: Vec<Span>,
+struct Run<'a> {
+    text: &'a str,
+    #[serde(borrow)]
+    sources: Vec<Span<'a>>,
 }
 #[derive(Deserialize)]
-struct Span {
-    document: String,
-    node: String,
+struct Span<'a> {
+    document: &'a str,
+    node: &'a str,
     offset: u64,
     length: u64,
 }
 #[derive(Deserialize)]
-struct Piece {
-    id: String,
-    text: String,
-    block_id: String,
-    sources: Vec<Span>,
+struct Piece<'a> {
+    id: &'a str,
+    text: &'a str,
+    block_id: &'a str,
+    #[serde(borrow)]
+    sources: Vec<Span<'a>>,
 }
 #[derive(Deserialize)]
-struct Chapter {
-    id: String,
-    title: String,
-    start_piece: String,
-    end_piece_exclusive: Option<String>,
+struct Chapter<'a> {
+    id: &'a str,
+    title: &'a str,
+    start_piece: &'a str,
+    end_piece_exclusive: Option<&'a str>,
 }
 
-fn valid_spans(spans: &[Span], documents: &HashSet<&str>) -> bool {
+fn valid_spans(spans: &[Span<'_>], documents: &HashSet<&str>) -> bool {
     spans.iter().all(|s| {
-        documents.contains(s.document.as_str())
+        documents.contains(s.document)
             && !s.node.is_empty()
             && s.offset
                 .checked_add(s.length)
@@ -110,15 +117,15 @@ fn validate_book(book: &Value) -> Result<(), String> {
     {
         return Err(invalid());
     }
-    let parsed: ContractBook = serde_json::from_value(book.clone()).map_err(|_| invalid())?;
-    let documents: HashSet<_> = parsed.documents.iter().map(|d| d.id.as_str()).collect();
+    let parsed = ContractBook::deserialize(book).map_err(|_| invalid())?;
+    let documents: HashSet<_> = parsed.documents.iter().map(|d| d.id).collect();
     if documents.len() != parsed.documents.len() || documents.contains("") {
         return Err(invalid());
     }
     let mut blocks = HashSet::new();
     for document in &parsed.documents {
         for block in &document.blocks {
-            if block.id.is_empty() || block.kind.is_empty() || !blocks.insert(block.id.as_str()) {
+            if block.id.is_empty() || block.kind.is_empty() || !blocks.insert(block.id) {
                 return Err(invalid());
             }
             for run in &block.runs {
@@ -137,8 +144,8 @@ fn validate_book(book: &Value) -> Result<(), String> {
     let mut pieces = HashSet::new();
     for piece in &parsed.pieces {
         if piece.id.is_empty()
-            || !pieces.insert(piece.id.as_str())
-            || !blocks.contains(piece.block_id.as_str())
+            || !pieces.insert(piece.id)
+            || !blocks.contains(piece.block_id)
             || !valid_spans(&piece.sources, &documents)
             || piece.text.len() as u64 > MAX_BOOK_BYTES
         {
@@ -151,13 +158,12 @@ fn validate_book(book: &Value) -> Result<(), String> {
     let mut chapters = HashSet::new();
     for chapter in &parsed.chapters {
         if chapter.id.is_empty()
-            || !chapters.insert(chapter.id.as_str())
+            || !chapters.insert(chapter.id)
             || chapter.title.len() as u64 > MAX_BOOK_BYTES
-            || !pieces.contains(chapter.start_piece.as_str())
+            || !pieces.contains(chapter.start_piece)
             || chapter
                 .end_piece_exclusive
-                .as_ref()
-                .is_some_and(|id| !pieces.contains(id.as_str()))
+                .is_some_and(|id| !pieces.contains(id))
         {
             return Err(invalid());
         }
@@ -636,6 +642,45 @@ mod tests {
         let mut demo = original;
         demo["pieces"][1]["id"] = demo["pieces"][0]["id"].clone();
         assert!(validate_book(&demo).is_err());
+        Ok(())
+    }
+    #[test]
+    fn validates_unicode_and_optional_chapter_ends() -> Result<(), String> {
+        let mut book = serde_json::json!({
+            "schema_version": 1, "book_id": "book", "revision": "revision",
+            "title": "", "notes": [],
+            "documents": [{"id": "document", "blocks": [{
+                "id": "block", "kind": "paragraph", "runs": [{
+                    "text": "é\n\"🙂", "sources": [{
+                        "document": "document", "node": "node", "offset": 0, "length": 4
+                    }]
+                }]
+            }]}],
+            "pieces": [{"id": "piece", "text": "é\n\"🙂", "block_id": "block", "sources": []}],
+            "chapters": [{"id": "chapter", "title": "", "start_piece": "piece"}]
+        });
+        validate_book(&book)?;
+        book["chapters"][0]["end_piece_exclusive"] = Value::Null;
+        validate_book(&book)?;
+        book["chapters"][0]["end_piece_exclusive"] = Value::from("piece");
+        validate_book(&book)?;
+        for pointer in [
+            "/documents/0/id",
+            "/documents/0/blocks/0/kind",
+            "/documents/0/blocks/0/runs/0/text",
+            "/documents/0/blocks/0/runs/0/sources/0/node",
+            "/pieces/0/text",
+            "/chapters/0/title",
+            "/chapters/0/end_piece_exclusive",
+        ] {
+            let mut invalid = book.clone();
+            *invalid
+                .pointer_mut(pointer)
+                .ok_or("Missing fixture field")? = Value::from(1);
+            assert!(validate_book(&invalid).is_err(), "accepted {pointer}");
+        }
+        book["documents"][0]["blocks"][0]["runs"][0]["sources"][0]["length"] = Value::from(3);
+        assert!(validate_book(&book).is_err());
         Ok(())
     }
     #[test]

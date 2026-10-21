@@ -269,12 +269,7 @@ fn import_inner(
             ornaments::inspect_to(&archive, &options.limits, &occurrences, |resource| {
                 spool.resource(&resource)
             })?;
-        for index in 0..spool.chunks {
-            let mut chunk = spool.read(index)?;
-            finalize_content(&mut chunk, &book.image_evidence, &note_ids);
-            book.diagnostics.append(&mut chunk.diagnostics);
-            spool.replace(index, &chunk)?;
-        }
+        spool.finalize(&book.image_evidence, &note_ids, &mut book.diagnostics)?;
     } else {
         let (evidence, resources) = ornaments::inspect(&archive, &options.limits, &occurrences)?;
         finalize_content(&mut book, &evidence, &note_ids);
@@ -935,15 +930,10 @@ pub fn export_epub(
     }
     for field in ["documents", "pieces", "notes"] {
         write!(writer, ",\"{field}\":[")?;
-        let mut first = true;
-        for index in 0..spool.chunks {
-            let chunk = spool.read(index)?;
-            match field {
-                "documents" => write_items(&mut writer, &chunk.documents, &mut first)?,
-                "pieces" => write_items(&mut writer, &chunk.pieces, &mut first)?,
-                _ => write_items(&mut writer, &chunk.notes, &mut first)?,
-            }
-        }
+        std::io::copy(
+            &mut fs::File::open(spool.root.join(format!("{field}.json")))?,
+            &mut writer,
+        )?;
         writer.write_all(b"]")?;
     }
     writer.write_all(b",\"resources\":[")?;
@@ -1043,7 +1033,7 @@ impl Spool {
         self.documents += chunk.documents.len();
         self.pieces += chunk.pieces.len();
         self.notes += chunk.notes.len();
-        self.replace(self.chunks, &chunk)?;
+        self.write_chunk(self.chunks, &chunk)?;
         self.chunks += 1;
         Ok(())
     }
@@ -1053,12 +1043,38 @@ impl Spool {
         )?))
         .map_err(json_error)
     }
-    fn replace(&self, index: usize, chunk: &Book) -> Result<()> {
+    fn write_chunk(&self, index: usize, chunk: &Book) -> Result<()> {
         let mut writer = BufWriter::new(private_file(
             &self.root.join(format!("chunk-{index}.json")),
         )?);
         serde_json::to_writer(&mut writer, chunk).map_err(json_error)?;
         writer.flush()?;
+        Ok(())
+    }
+    fn finalize(
+        &self,
+        evidence: &[ImageEvidence],
+        note_ids: &BTreeSet<String>,
+        diagnostics: &mut Vec<String>,
+    ) -> Result<()> {
+        let mut documents = BufWriter::new(private_file(&self.root.join("documents.json"))?);
+        let mut pieces = BufWriter::new(private_file(&self.root.join("pieces.json"))?);
+        let mut notes = BufWriter::new(private_file(&self.root.join("notes.json"))?);
+        let mut first_document = true;
+        let mut first_piece = true;
+        let mut first_note = true;
+        for index in 0..self.chunks {
+            let mut chunk = self.read(index)?;
+            finalize_content(&mut chunk, evidence, note_ids);
+            diagnostics.append(&mut chunk.diagnostics);
+            write_items(&mut documents, &chunk.documents, &mut first_document)?;
+            write_items(&mut pieces, &chunk.pieces, &mut first_piece)?;
+            write_items(&mut notes, &chunk.notes, &mut first_note)?;
+            fs::remove_file(self.root.join(format!("chunk-{index}.json")))?;
+        }
+        documents.flush()?;
+        pieces.flush()?;
+        notes.flush()?;
         Ok(())
     }
     fn resource(&mut self, resource: &Resource) -> Result<()> {

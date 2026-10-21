@@ -33,15 +33,21 @@ pub(crate) fn split_book(book: &mut Book) -> Result<()> {
     Ok(())
 }
 
+fn may_split(piece: &Piece) -> bool {
+    piece.kind == "word"
+        && piece.text.contains(separator)
+        && !piece.text.contains(['/', '\\', '@'])
+        && piece.text.chars().any(char::is_alphabetic)
+}
+
 pub(crate) fn split_pieces(pieces: &mut Vec<Piece>) -> Result<()> {
+    if !pieces.iter().any(may_split) {
+        return Ok(());
+    }
     let mut ids: HashSet<_> = pieces.iter().map(|p| p.id.clone()).collect();
     let mut result = Vec::with_capacity(pieces.len());
     for piece in std::mem::take(pieces) {
-        if piece.kind != "word"
-            || !piece.text.contains(separator)
-            || piece.text.contains(['/', '\\', '@'])
-            || !piece.text.chars().any(char::is_alphabetic)
-        {
+        if !may_split(&piece) {
             result.push(piece);
             continue;
         }
@@ -129,4 +135,86 @@ pub(crate) fn split_pieces(pieces: &mut Vec<Piece>) -> Result<()> {
     }
     *pieces = result;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SourceSpan;
+
+    fn piece(id: &str, text: &str) -> Piece {
+        Piece {
+            id: id.into(),
+            text: text.into(),
+            word_id: String::new(),
+            sources: vec![SourceSpan {
+                document: "chapter.xhtml".into(),
+                node: "text-1".into(),
+                offset: 7,
+                length: text.chars().count(),
+            }],
+            block_id: "paragraph-1".into(),
+            paragraph_end: true,
+            kind: "word".into(),
+            note_id: None,
+        }
+    }
+
+    #[test]
+    fn leaves_unsplit_pieces_unchanged() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let mut pieces = vec![
+            piece("plain", "ordinary"),
+            piece("unicode", "café中文"),
+            piece("date", "2026-10-21"),
+            piece("url", "https://example.com/a-b"),
+            piece("email", "a-b@example.com"),
+            piece("path", "dir\\a-b"),
+            piece("symbol", "---"),
+            piece("image", "well-known"),
+        ];
+        pieces[7].kind = "image".into();
+        let before = serde_json::to_value(&pieces)?;
+        split_pieces(&mut pieces)?;
+        assert_eq!(serde_json::to_value(&pieces)?, before);
+        split_pieces(&mut Vec::new())?;
+        Ok(())
+    }
+
+    #[test]
+    fn split_ids_reserve_both_earlier_and_later_unsplit_ids()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let mut pieces = vec![
+            piece("root:hyphen:1", "before"),
+            piece("root", "café—東京-test"),
+            piece("root:hyphen:2", "after"),
+        ];
+        pieces[1].word_id = "lexical-word".into();
+        split_pieces(&mut pieces)?;
+        assert_eq!(
+            pieces.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            [
+                "root:hyphen:1",
+                "root",
+                "root:hyphen:3",
+                "root:hyphen:4",
+                "root:hyphen:2"
+            ]
+        );
+        assert_eq!(
+            pieces.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(),
+            ["before", "café—", "東京-", "test", "after"]
+        );
+        assert!(pieces[1..4].iter().all(|p| p.word_id == "lexical-word"));
+        assert_eq!(
+            pieces[1..4]
+                .iter()
+                .map(|p| (p.sources[0].offset, p.sources[0].length, p.paragraph_end))
+                .collect::<Vec<_>>(),
+            [(7, 5, false), (12, 3, false), (15, 4, true)]
+        );
+        let before = serde_json::to_value(&pieces)?;
+        split_pieces(&mut pieces)?;
+        assert_eq!(serde_json::to_value(&pieces)?, before);
+        Ok(())
+    }
 }

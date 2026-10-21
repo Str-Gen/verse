@@ -45,6 +45,16 @@ The standalone normalized Unicode fixture exercises native source selection and 
 
 For sequential resource samples, build both release artifacts, wait until no builds remain, then run `python scripts/measure.py`. It refuses to start while build processes exist. Outputs and synthetic screenshots are in ignored `evidence/`; the final control-directory archive preserves them. Historical evidence is kept under ignored `docs/private/`.
 
+The shared reader has a repeatable profiling workload for normalized JSON exports:
+
+```sh
+CARGO_PROFILE_RELEASE_DEBUG=1 CARGO_PROFILE_RELEASE_STRIP=false cargo build --release --locked -p reader-core --example profile_reader
+mkdir -p docs/private
+perf record -g -o docs/private/reader.perf -- target/release/examples/profile_reader book.json window 300
+```
+
+The `open`, `window`, and `piece` workloads accept an iteration count. Window and piece reads visit deterministic distant positions. Output separates initial book opening from the timed loop; process-level counters include both. Keep the same input, compiler settings, and workload for before/after comparisons. Native rendering and IPC require separate frontend profiles.
+
 ## Reading experience integration, 21 October
 
 Both native apps now use a two-second preparation pulse and a 30-second normalized tanh ramp from half to full selected WPM. A pause of up to 30 seconds after reading begins resumes at full speed. Returning to conventional reading, selecting a new passage, or reopening a book starts fresh. Cancelling preparation does not count as reading. Punctuation and paragraph timing scale with the ramp.
