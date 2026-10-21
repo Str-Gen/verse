@@ -906,13 +906,8 @@ fn streaming_long_epub_reads_last_window_without_collecting_book() -> TestResult
     }
     zip.finish()?;
     assert!(std::fs::metadata(&epub)?.len() > 10 * 1024 * 1024);
-    let options = ImportOptions {
-        limits: Limits {
-            text_scalars: 32 * 1024 * 1024,
-            ..Limits::default()
-        },
-    };
-    let summary = reader_core::export_epub(&epub, "long-synthetic", &options, &output)?;
+    let summary =
+        reader_core::export_epub(&epub, "long-synthetic", &ImportOptions::default(), &output)?;
     assert_eq!(summary.documents, chapters);
     assert_eq!(summary.pieces, chapters * words_per_chapter);
     let disk = reader_core::book_store::DiskBook::open(&output)?;

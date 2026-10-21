@@ -317,10 +317,15 @@ fn import_inner(
     if spool.is_none() {
         crate::compound::split_book(&mut book)?;
     }
+    let (documents, pieces) = spool
+        .as_ref()
+        .map_or((book.documents.len(), book.pieces.len()), |spool| {
+            (spool.documents, spool.pieces)
+        });
     tracing::info!(
         code = "import_completed",
-        documents = book.documents.len(),
-        pieces = book.pieces.len(),
+        documents,
+        pieces,
         diagnostics = book.diagnostics.len(),
         "EPUB imported"
     );
