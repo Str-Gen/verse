@@ -4,6 +4,7 @@
 //! Import failures return without modifying a caller's current book. Output is reader data,
 //! never executable publisher HTML. See the component README for the CSS support boundary.
 mod archive;
+pub mod book_store;
 mod compound;
 pub mod location;
 mod normalize;
