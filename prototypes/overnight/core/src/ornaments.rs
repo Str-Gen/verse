@@ -80,16 +80,19 @@ pub(crate) fn inspect(
     limits: &Limits,
     occurrences: &[(String, bool)],
 ) -> Result<(Vec<ImageEvidence>, Vec<Resource>)> {
-    let mut resources=Vec::new();
-    let evidence=inspect_to(archive,limits,occurrences,|resource|{resources.push(resource);Ok(())})?;
-    Ok((evidence,resources))
+    let mut resources = Vec::new();
+    let evidence = inspect_to(archive, limits, occurrences, |resource| {
+        resources.push(resource);
+        Ok(())
+    })?;
+    Ok((evidence, resources))
 }
 
 pub(crate) fn inspect_to(
     archive: &Archive,
     limits: &Limits,
     occurrences: &[(String, bool)],
-    mut resource_sink: impl FnMut(Resource)->Result<()>,
+    mut resource_sink: impl FnMut(Resource) -> Result<()>,
 ) -> Result<Vec<ImageEvidence>> {
     let paths: BTreeSet<&str> = archive
         .files

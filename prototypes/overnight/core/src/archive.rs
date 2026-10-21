@@ -43,44 +43,112 @@ pub(crate) struct Archive {
 impl Archive {
     pub fn open(path: &Path, limits: &Limits) -> Result<Self> {
         let file = std::fs::File::open(path)?;
-        if file.metadata()?.len() > limits.archive_bytes { return Err(Error::Limit("compressed archive bytes")); }
-        let mut zip = zip::ZipArchive::new(file)?;
-        if zip.len() > limits.entries { return Err(Error::Limit("ZIP entries")); }
-        let mut files=BTreeMap::new(); let mut total=0u64;
-        for i in 0..zip.len() {
-            let entry=zip.by_index(i)?;
-            if entry.is_dir() { continue; }
-            let name=entry.name().to_owned();
-            if name.starts_with('/') || name.contains('\\') || name.split('/').any(|s|matches!(s,".."|"."|"")) {return Err(Error::Invalid("unsafe archive resource path".into()));}
-            if files.insert(name,Vec::new()).is_some(){return Err(Error::Invalid("duplicate ZIP resource".into()));}
-            if entry.size()>limits.entry_bytes{return Err(Error::Limit("expanded entry bytes"));}
-            total=total.checked_add(entry.size()).ok_or(Error::Limit("expanded archive bytes"))?;
-            if total>limits.expanded_bytes{return Err(Error::Limit("expanded archive bytes"));}
+        if file.metadata()?.len() > limits.archive_bytes {
+            return Err(Error::Limit("compressed archive bytes"));
         }
-        let result=Self{path:path.to_owned(),limits:limits.clone(),files};
-        if result.read("mimetype")?.as_deref()!=Some(b"application/epub+zip".as_slice()){return Err(Error::Invalid("missing or incorrect EPUB mimetype".into()));}
+        let mut zip = zip::ZipArchive::new(file)?;
+        if zip.len() > limits.entries {
+            return Err(Error::Limit("ZIP entries"));
+        }
+        let mut files = BTreeMap::new();
+        let mut total = 0u64;
+        for i in 0..zip.len() {
+            let entry = zip.by_index(i)?;
+            if entry.is_dir() {
+                continue;
+            }
+            let name = entry.name().to_owned();
+            if name.starts_with('/')
+                || name.contains('\\')
+                || name.split('/').any(|s| matches!(s, ".." | "." | ""))
+            {
+                return Err(Error::Invalid("unsafe archive resource path".into()));
+            }
+            if files.insert(name, Vec::new()).is_some() {
+                return Err(Error::Invalid("duplicate ZIP resource".into()));
+            }
+            if entry.size() > limits.entry_bytes {
+                return Err(Error::Limit("expanded entry bytes"));
+            }
+            let declared = entry.size();
+            let allowed = limits
+                .entry_bytes
+                .min(limits.expanded_bytes.saturating_sub(total));
+            let actual = std::io::copy(
+                &mut entry.take(allowed.saturating_add(1)),
+                &mut std::io::sink(),
+            )?;
+            if actual > allowed {
+                return Err(Error::Limit("actual expanded bytes"));
+            }
+            if actual != declared {
+                return Err(Error::Invalid(
+                    "ZIP size metadata disagrees with expanded data".into(),
+                ));
+            }
+            total = total
+                .checked_add(actual)
+                .ok_or(Error::Limit("expanded archive bytes"))?;
+            if total > limits.expanded_bytes {
+                return Err(Error::Limit("expanded archive bytes"));
+            }
+        }
+        let result = Self {
+            path: path.to_owned(),
+            limits: limits.clone(),
+            files,
+        };
+        if result.read("mimetype")?.as_deref() != Some(b"application/epub+zip".as_slice()) {
+            return Err(Error::Invalid("missing or incorrect EPUB mimetype".into()));
+        }
         Ok(result)
     }
-    pub fn paths(&self)->impl Iterator<Item=&String> {self.files.keys()}
-    pub fn revision(&self)->Result<String> {
-        use sha2::{Digest,Sha256};
-        let mut file=std::fs::File::open(&self.path)?;let mut hash=Sha256::new();let mut buffer=[0u8;64*1024];
-        loop {let count=file.read(&mut buffer)?;if count==0{break;}hash.update(&buffer[..count]);}
-        Ok(format!("{:x}",hash.finalize()))
+    pub fn paths(&self) -> impl Iterator<Item = &String> {
+        self.files.keys()
     }
-    pub fn read(&self,path:&str)->Result<Option<Vec<u8>>>{
-        let Some(override_bytes)=self.files.get(path) else{return Ok(None);};
-        if !override_bytes.is_empty(){return Ok(Some(override_bytes.clone()));}
-        let mut zip=zip::ZipArchive::new(std::fs::File::open(&self.path)?)?;
-        let entry=zip.by_name(path)?;let size=entry.size();
-        let mut data=Vec::new();entry.take(self.limits.entry_bytes+1).read_to_end(&mut data)?;
-        if data.len() as u64>self.limits.entry_bytes{return Err(Error::Limit("actual expanded bytes"));}
-        if data.len() as u64!=size{return Err(Error::Invalid("ZIP size metadata disagrees with expanded data".into()));}
+    pub fn revision(&self) -> Result<String> {
+        use sha2::{Digest, Sha256};
+        let mut file = std::fs::File::open(&self.path)?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            hash.update(&buffer[..count]);
+        }
+        Ok(format!("{:x}", hash.finalize()))
+    }
+    pub fn read(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        let Some(override_bytes) = self.files.get(path) else {
+            return Ok(None);
+        };
+        if !override_bytes.is_empty() {
+            return Ok(Some(override_bytes.clone()));
+        }
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(&self.path)?)?;
+        let entry = zip.by_name(path)?;
+        let size = entry.size();
+        let mut data = Vec::new();
+        entry
+            .take(self.limits.entry_bytes + 1)
+            .read_to_end(&mut data)?;
+        if data.len() as u64 > self.limits.entry_bytes {
+            return Err(Error::Limit("actual expanded bytes"));
+        }
+        if data.len() as u64 != size {
+            return Err(Error::Invalid(
+                "ZIP size metadata disagrees with expanded data".into(),
+            ));
+        }
         Ok(Some(data))
     }
-    pub fn text(&self,path:&str)->Result<String>{
-        let bytes=self.read(path)?.ok_or_else(||Error::Invalid(format!("missing publication resource: {path}")))?;
-        String::from_utf8(bytes).map_err(|_|Error::Invalid("only UTF-8 XML is supported".into()))
+    pub fn text(&self, path: &str) -> Result<String> {
+        let bytes = self
+            .read(path)?
+            .ok_or_else(|| Error::Invalid(format!("missing publication resource: {path}")))?;
+        String::from_utf8(bytes).map_err(|_| Error::Invalid("only UTF-8 XML is supported".into()))
     }
 }
 
