@@ -80,6 +80,17 @@ pub(crate) fn inspect(
     limits: &Limits,
     occurrences: &[(String, bool)],
 ) -> Result<(Vec<ImageEvidence>, Vec<Resource>)> {
+    let mut resources=Vec::new();
+    let evidence=inspect_to(archive,limits,occurrences,|resource|{resources.push(resource);Ok(())})?;
+    Ok((evidence,resources))
+}
+
+pub(crate) fn inspect_to(
+    archive: &Archive,
+    limits: &Limits,
+    occurrences: &[(String, bool)],
+    mut resource_sink: impl FnMut(Resource)->Result<()>,
+) -> Result<Vec<ImageEvidence>> {
     let paths: BTreeSet<&str> = archive
         .files
         .keys()
@@ -88,7 +99,6 @@ pub(crate) fn inspect(
         .chain(occurrences.iter().map(|(p, _)| p.as_str()))
         .collect();
     let mut evidence = Vec::new();
-    let mut resources = Vec::new();
     let mut groups: BTreeMap<[u8; 32], Vec<usize>> = BTreeMap::new();
     for path in paths {
         let exact_occurrences = occurrences.iter().filter(|(p, _)| p == path).count();
@@ -108,11 +118,11 @@ pub(crate) fn inspect(
                 "Missing, invalid, or unsupported raster resource; preserve a visible placeholder."
                     .into(),
         };
-        let Some(bytes) = archive.files.get(path) else {
+        let Some(bytes) = archive.read(path)? else {
             evidence.push(item);
             continue;
         };
-        let Ok(format) = image::guess_format(bytes) else {
+        let Ok(format) = image::guess_format(&bytes) else {
             evidence.push(item);
             continue;
         };
@@ -120,7 +130,7 @@ pub(crate) fn inspect(
             evidence.push(item);
             continue;
         };
-        let dimensions = reader(bytes, format, limits).into_dimensions();
+        let dimensions = reader(&bytes, format, limits).into_dimensions();
         let (width, height) = match dimensions {
             Ok(dimensions) => dimensions,
             Err(image::ImageError::Limits(_)) => {
@@ -139,7 +149,7 @@ pub(crate) fn inspect(
                 max_pixels: limits.image_pixels,
             });
         }
-        let decoded = match reader(bytes, format, limits).decode() {
+        let decoded = match reader(&bytes, format, limits).decode() {
             Ok(image) => image.into_rgba8(),
             Err(image::ImageError::Limits(_)) => {
                 return Err(Error::Limit("image decoder allocation"));
@@ -187,14 +197,14 @@ pub(crate) fn inspect(
                 })?;
             ("image/png", std::borrow::Cow::Owned(output.into_inner()))
         };
-        resources.push(Resource {
+        resource_sink(Resource {
             id: path.to_owned(),
             media_type: render_media.into(),
             data_url: format!(
                 "data:{render_media};base64,{}",
                 base64::engine::general_purpose::STANDARD.encode(&render_bytes)
             ),
-        });
+        })?;
         evidence.push(item);
     }
     for indices in groups.values() {
@@ -202,7 +212,7 @@ pub(crate) fn inspect(
             evidence[index].mirrored_or_identical_assets = indices.len();
         }
     }
-    Ok((evidence, resources))
+    Ok(evidence)
 }
 
 #[cfg(test)]
