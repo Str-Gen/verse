@@ -31,6 +31,8 @@ Open `http://127.0.0.1:18772`. This serves only the bundled web directory and bi
 ## Reading
 
 - Left and Right turn conventional pages. Select or click a passage, then press Space to play from its source piece. Space pauses; Escape returns to the last displayed passage.
+- The quiet footer’s **⋯** button exposes file and reading controls. The default reading font is IBM Plex Mono with JetBrains Mono Nerd Font and monospace fallbacks, at 20 pixels in a roughly 65-character column. Previously saved font sizes remain respected.
+- Images retain their proportions, shrink to fit the reading area, and are never enlarged. Alt text remains accessible without a duplicate caption; unavailable resources retain a visible fallback.
 - Reading settings expose chapter navigation, font size, per-book speed, optional note following and chapter feedback. Font or window changes reflow around the selected source rather than retaining a page number.
 - Image and unsupported-content items pause. Space continues; Escape shows their conventional context. Explicit ornaments skip playback. Image classification belongs to the core.
 - Note links open on demand. With note following enabled, the core's `note_id` references play `notes[].pieces`, then continue after the marker. Nested notes are not followed recursively. This prototype also handles inline `kind: note` blocks in the small local fixture.

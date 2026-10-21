@@ -6,6 +6,12 @@ export async function runTests(reader) {
   function check(name, condition) { checks.push({ name, passed: Boolean(condition) }); if (!condition) errors.push(name); }
   try {
     await document.fonts.ready; await wait(100);
+    check('quiet controls start collapsed', $('settings').hidden && $('book-controls').hidden && $('settings-button').getAttribute('aria-expanded') === 'false');
+    check('reading uses Omawrite font family', getComputedStyle($('book')).fontFamily.includes('IBM Plex Mono'));
+    $('settings-button').click();
+    check('footer menu exposes file and reading controls', !$('settings').hidden && !$('book-controls').hidden);
+    $('settings-button').click();
+    check('footer menu collapses auxiliary controls', $('settings').hidden && $('book-controls').hidden);
     const original = JSON.parse(JSON.stringify(reader.snapshot.book));
     check('startup is stopped at a source-matching saved anchor', reader.snapshot.mode === 'reading' && restore(original, reader.startup.books[original.book_id]).at === reader.snapshot.at);
     check('native or browser DOM renders normalized book', $('book').textContent.includes('observatory'));
@@ -84,6 +90,17 @@ export async function runTests(reader) {
     check('Rust-core synthetic export opens through the JSON adapter', reader.snapshot.book.pieces.length === 49 && reader.snapshot.book.chapters.length === 3);
     await wait(80);
     check('core embedded raster resources render locally', [...$('book').querySelectorAll('img')].length === 5 && [...$('book').querySelectorAll('img')].every(img => img.complete && img.naturalWidth > 0 && img.src.startsWith('data:image/')));
+    check('loaded images do not duplicate alt text as captions', !$('book').querySelector('figcaption'));
+    const imageSource = JSON.stringify(position(core, reader.snapshot.at));
+    for (const limit of ['', '30px']) {
+      $('viewport').style.maxWidth = limit; reader.reflow(); await wait(30);
+      check(`images preserve proportions without upscaling at width ${limit || 'normal'}`, [...$('book').querySelectorAll('img')].every(img => {
+        const rect = img.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && rect.width <= img.naturalWidth + 0.1 && rect.height <= img.naturalHeight + 0.1 && Math.abs(rect.width / rect.height - img.naturalWidth / img.naturalHeight) < 0.02 && rect.width <= $('viewport').clientWidth + 0.1;
+      }));
+    }
+    $('viewport').style.maxWidth = ''; reader.reflow();
+    check('image reflow preserves source anchor', JSON.stringify(position(core, reader.snapshot.at)) === imageSource);
     const coreJoined = core.pieces.findIndex(p => p.text === 'naïveté');
     check('core multi-run source piece maps to three conventional fragments', document.querySelectorAll(`[data-piece="${coreJoined}"]`).length === 3);
     const marker = core.pieces.findIndex(p => p.kind === 'note');

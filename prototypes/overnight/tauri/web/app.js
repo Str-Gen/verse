@@ -72,7 +72,7 @@ function render() {
       element = document.createElement('figure');
       const resource = localImage(book.resources?.find(r => r.id === block.resource)?.data_url ?? block.resource);
       if (resource) { const img = document.createElement('img'); img.src = resource; img.alt = block.alt ?? 'Book image'; img.addEventListener('load', reflow); element.append(img); }
-      const caption = document.createElement('figcaption'); caption.textContent = `${block.alt ?? 'Image'}${resource ? '' : ' · Local image resource is unavailable in this adapter.'}`; element.append(caption);
+      if (!resource) { const caption = document.createElement('figcaption'); caption.textContent = `${block.alt?.trim() || 'Image'} · Image unavailable.`; element.append(caption); }
     } else if (['heading', 'paragraph', 'list_item'].includes(block.kind)) {
       element = document.createElement(block.kind === 'heading' ? `h${[1,2,3].includes(block.level) ? block.level : 2}` : block.kind === 'list_item' ? 'li' : 'p');
       block.runs.forEach(run => element.append(makeText(run)));
@@ -102,7 +102,9 @@ function showPage(value) {
 }
 function reflow() {
   if (!book) return;
+  $('viewport').style.fontSize = `${$('font-size').value}px`;
   $('book').style.fontSize = `${$('font-size').value}px`;
+  $('book').style.setProperty('--image-height', `${Math.max(1, $('viewport').clientHeight - Number($('font-size').value) * 3)}px`);
   const width = $('viewport').clientWidth;
   if (width <= 0) return;
   $('book').style.width = `${width}px`;
@@ -213,7 +215,7 @@ function loadBook(value) {
   stop(); notePlayback = null; book = validated; mode = 'reading'; $('playback').hidden = true; guarded = false;
   const prefs = preferences(), location = restore(book, prefs.revision ? prefs : null);
   $('speed').value = Number.isFinite(prefs.speed) ? prefs.speed : 350;
-  $('font-size').value = Number.isFinite(prefs.fontSize) ? prefs.fontSize : 22;
+  $('font-size').value = Number.isFinite(prefs.fontSize) ? prefs.fontSize : 20;
   $('feedback-enabled').checked = prefs.feedback !== false;
   $('follow-notes').checked = prefs.followNotes === true;
   at = location.kind === 'exact' ? location.at : 0;
@@ -250,7 +252,13 @@ $('book').addEventListener('mouseup', event => {
 });
 $('play').onclick = play; $('return').onclick = returnToText;
 $('previous').onclick = () => turn(-1); $('next').onclick = () => turn(1);
-$('settings-button').onclick = () => { $('settings').hidden = !$('settings').hidden; reflow(); };
+$('settings-button').onclick = () => {
+  const hidden = !$('settings').hidden;
+  $('settings').hidden = hidden;
+  $('book-controls').hidden = hidden;
+  $('settings-button').setAttribute('aria-expanded', String(!hidden));
+  reflow();
+};
 $('font-size').oninput = reflow;
 $('speed').onchange = () => { $('speed').value = speed(); paceChanges.push({ date: new Date().toISOString(), wpm: speed(), sources: book.pieces[at].sources }); persist(); };
 $('feedback-enabled').onchange = persist;
