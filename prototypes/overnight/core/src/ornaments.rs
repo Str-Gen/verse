@@ -19,7 +19,7 @@ fn raster_extension(path: &str) -> bool {
     path.rsplit_once('.').is_some_and(|(_, ext)| {
         matches!(
             ext.to_ascii_lowercase().as_str(),
-            "png" | "jpg" | "jpeg" | "gif" | "webp"
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "tif" | "tiff"
         )
     })
 }
@@ -30,6 +30,9 @@ fn media_type(format: ImageFormat) -> Option<&'static str> {
         ImageFormat::Jpeg => Some("image/jpeg"),
         ImageFormat::Gif => Some("image/gif"),
         ImageFormat::WebP => Some("image/webp"),
+        ImageFormat::Avif => Some("image/avif"),
+        ImageFormat::Bmp => Some("image/bmp"),
+        ImageFormat::Tiff => Some("image/tiff"),
         _ => None,
     }
 }
@@ -87,7 +90,6 @@ pub(crate) fn inspect(
     let mut evidence = Vec::new();
     let mut resources = Vec::new();
     let mut groups: BTreeMap<[u8; 32], Vec<usize>> = BTreeMap::new();
-    let mut total_pixels = 0u64;
     for path in paths {
         let exact_occurrences = occurrences.iter().filter(|(p, _)| p == path).count();
         let all_decorative = exact_occurrences > 0
@@ -130,13 +132,12 @@ pub(crate) fn inspect(
             }
         };
         if u64::from(width) * u64::from(height) > limits.image_pixels {
-            return Err(Error::Limit("image pixels"));
-        }
-        total_pixels = total_pixels
-            .checked_add(u64::from(width) * u64::from(height))
-            .ok_or(Error::Limit("total image pixels"))?;
-        if total_pixels > limits.total_image_pixels {
-            return Err(Error::Limit("total image pixels"));
+            return Err(Error::ImageTooLarge {
+                resource: path.into(),
+                width,
+                height,
+                max_pixels: limits.image_pixels,
+            });
         }
         let decoded = match reader(bytes, format, limits).decode() {
             Ok(image) => image.into_rgba8(),
@@ -170,12 +171,28 @@ pub(crate) fn inspect(
             .entry(fingerprint(&decoded))
             .or_default()
             .push(evidence.len());
+        // Both frontends render these formats directly. Normalize other decoded
+        // formats to PNG so rendering does not depend on installed image plugins.
+        let (render_media, render_bytes) = if matches!(
+            format,
+            ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP
+        ) {
+            (media_type, std::borrow::Cow::Borrowed(bytes.as_slice()))
+        } else {
+            let mut output = Cursor::new(Vec::new());
+            decoded
+                .write_to(&mut output, ImageFormat::Png)
+                .map_err(|error| {
+                    Error::Invalid(format!("could not prepare image {path}: {error}"))
+                })?;
+            ("image/png", std::borrow::Cow::Owned(output.into_inner()))
+        };
         resources.push(Resource {
             id: path.to_owned(),
-            media_type: media_type.into(),
+            media_type: render_media.into(),
             data_url: format!(
-                "data:{media_type};base64,{}",
-                base64::engine::general_purpose::STANDARD.encode(bytes)
+                "data:{render_media};base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(&render_bytes)
             ),
         });
         evidence.push(item);
@@ -244,7 +261,90 @@ mod tests {
         limits.image_pixels = 10;
         assert!(matches!(
             inspect(&archive, &limits, &[]),
-            Err(Error::Limit(_))
+            Err(Error::ImageTooLarge { .. }) | Err(Error::Limit(_))
+        ));
+        Ok(())
+    }
+    #[test]
+    fn supported_formats_decode_and_export_frontend_compatible_images() -> Result<()> {
+        let limits = Limits::default();
+        let mut archive = Archive::open(Path::new("fixtures/complex.epub"), &limits)?;
+        archive.files.clear();
+        for (name, format) in [
+            ("pixels.png", ImageFormat::Png),
+            ("pixels.jpg", ImageFormat::Jpeg),
+            ("pixels.gif", ImageFormat::Gif),
+            ("pixels.webp", ImageFormat::WebP),
+            ("pixels.bmp", ImageFormat::Bmp),
+            ("pixels.tiff", ImageFormat::Tiff),
+        ] {
+            let mut output = Cursor::new(Vec::new());
+            image::RgbImage::from_pixel(4, 3, image::Rgb([53, 108, 165]))
+                .write_to(&mut output, format)
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            archive.files.insert(name.into(), output.into_inner());
+        }
+        archive.files.insert(
+            "pixels.avif".into(),
+            include_bytes!("../fixtures/pixels.avif").to_vec(),
+        );
+        let (evidence, resources) = inspect(&archive, &limits, &[])?;
+        assert_eq!(resources.len(), 7);
+        assert!(
+            evidence
+                .iter()
+                .all(|e| e.width == 4 && e.height == 3 && e.classification == "substantive")
+        );
+        for resource in resources {
+            assert!(matches!(
+                resource.media_type.as_str(),
+                "image/png" | "image/jpeg" | "image/webp"
+            ));
+            let (_, encoded) = resource
+                .data_url
+                .split_once(',')
+                .ok_or_else(|| Error::Invalid("missing data URL".into()))?;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let image =
+                image::load_from_memory(&bytes).map_err(|e| Error::Invalid(e.to_string()))?;
+            assert_eq!((image.width(), image.height()), (4, 3));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn image_limit_is_per_image_and_inclusive() -> Result<()> {
+        let mut limits = Limits {
+            image_pixels: 12,
+            ..Limits::default()
+        };
+        let mut archive = Archive::open(Path::new("fixtures/complex.epub"), &limits)?;
+        archive.files.clear();
+        let mut output = Cursor::new(Vec::new());
+        image::RgbaImage::new(4, 3)
+            .write_to(&mut output, ImageFormat::Png)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        for i in 0..10 {
+            archive
+                .files
+                .insert(format!("image-{i}.png"), output.get_ref().clone());
+        }
+        let (_, resources) = inspect(&archive, &limits, &[])?;
+        assert_eq!(resources.len(), 10);
+        limits.image_pixels = 11;
+        let error = inspect(&archive, &limits, &[])
+            .err()
+            .ok_or_else(|| Error::Invalid("oversized image accepted".into()))?;
+        assert!(matches!(
+            error,
+            Error::ImageTooLarge {
+                width: 4,
+                height: 3,
+                max_pixels: 11,
+                ..
+            }
         ));
         Ok(())
     }

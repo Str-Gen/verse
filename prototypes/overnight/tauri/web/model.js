@@ -93,3 +93,10 @@ export function restore(book, saved) {
 export function position(book, at) {
   return { revision: book.revision, sources: book.pieces[at].sources, context: contextAt(book, at), chapter: chapterAt(book, at)?.id ?? null };
 }
+
+export function localImage(resource) {
+  // Accept bundled artwork and embedded raster data; book size is bounded at import.
+  if (resource === 'synthetic-landscape.svg') return resource;
+  if (typeof resource === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(resource)) return resource;
+  return null;
+}

@@ -1,6 +1,6 @@
 use crate::{
     archive::{Archive, node_path, resolve, xml},
-    css::Css,
+    semantics::style,
     *,
 };
 use sha2::{Digest, Sha256};
@@ -22,15 +22,22 @@ struct Navigation {
 /// Imports a bounded EPUB using an application-assigned identity. Publisher identifiers
 /// remain metadata. Call `LocalStore::identity_for` to assign persistent local identities.
 pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Result<Book> {
+    let source_path = path;
+    let _span = tracing::info_span!("epub_import", epub = %path.display()).entered();
+    tracing::info!(code = "import_started", "Opening EPUB");
     let archive = Archive::open(path, &options.limits)?;
-    let container = xml(archive.text("META-INF/container.xml")?, &options.limits)?;
+    let container = xml(
+        archive.text("META-INF/container.xml")?,
+        "META-INF/container.xml",
+        &options.limits,
+    )?;
     let package = container
         .descendants()
         .find(|n| n.has_tag_name("rootfile"))
         .and_then(|n| n.attribute("full-path"))
         .ok_or_else(|| Error::Invalid("missing package rootfile".into()))?;
     let (package, _) = resolve("", package)?;
-    let opf = xml(archive.text(&package)?, &options.limits)?;
+    let opf = xml(archive.text(&package)?, &package, &options.limits)?;
     if opf.descendants().any(|n| {
         n.attribute("property") == Some("rendition:layout")
             && n.text().is_some_and(|text| text.trim() == "pre-paginated")
@@ -135,7 +142,7 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
         if !visited.insert(path.clone()) {
             return Err(Error::Invalid("duplicate spine document".into()));
         }
-        let doc = xml(archive.text(&path)?, &options.limits)?;
+        let doc = xml(archive.text(&path)?, &path, &options.limits)?;
         total_scalars = total_scalars
             .checked_add(
                 doc.descendants()
@@ -151,17 +158,23 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
         for n in doc.descendants().filter(|n| n.is_element()) {
             if let Some(id) = n.attribute("id") {
                 if id.is_empty() || !ids.insert(id) {
-                    return Err(Error::Invalid("duplicate or empty XHTML id".into()));
+                    let code = if id.is_empty() {
+                        "empty_xhtml_id"
+                    } else {
+                        "duplicate_xhtml_id"
+                    };
+                    tracing::warn!(code, epub = %source_path.display(), document = %path, id, "Invalid XHTML ID; content retained without repair, fragment navigation may be ambiguous");
+                    book.diagnostics.push(format!(
+                        "{code}: {path} id={id:?}; content retained without repair"
+                    ));
                 }
                 if frontmatter(n) {
                     non_chapters.insert(format!("{path}#{id}"));
                 }
             }
         }
-        let css = styles(&archive, &path, &doc)?;
         let mut builder = Builder {
             path: &path,
-            css: &css,
             blocks: Vec::new(),
             current: None,
             next_block: &mut next_block,
@@ -307,6 +320,13 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
                 .into(),
         );
     }
+    tracing::info!(
+        code = "import_completed",
+        documents = book.documents.len(),
+        pieces = book.pieces.len(),
+        diagnostics = book.diagnostics.len(),
+        "EPUB imported"
+    );
     Ok(book)
 }
 
@@ -320,7 +340,7 @@ fn navigation(
         .values()
         .find(|i| i.properties.split_whitespace().any(|p| p == "nav"))
     {
-        let doc = xml(archive.text(&item.path)?, limits)?;
+        let doc = xml(archive.text(&item.path)?, &item.path, limits)?;
         for nav in doc
             .descendants()
             .filter(|n| n.has_tag_name("nav") && semantic(*n, "toc"))
@@ -339,7 +359,7 @@ fn navigation(
         .values()
         .find(|i| i.media == "application/x-dtbncx+xml")
     {
-        let doc = xml(archive.text(&item.path)?, limits)?;
+        let doc = xml(archive.text(&item.path)?, &item.path, limits)?;
         for nav in doc.descendants().filter(|n| n.has_tag_name("navPoint")) {
             let content = nav
                 .children()
@@ -414,51 +434,8 @@ fn frontmatter_title(title: &str) -> bool {
             | "acknowledgements"
     )
 }
-fn screen_stylesheet(n: roxmltree::Node<'_, '_>) -> Result<bool> {
-    if n.has_attribute("disabled")
-        || n.attribute("rel")
-            .is_some_and(|r| r.split_whitespace().any(|r| r == "alternate"))
-    {
-        return Ok(false);
-    }
-    match n
-        .attribute("media")
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "" | "all" | "screen" => Ok(true),
-        "print" => Ok(false),
-        _ => Err(Error::Css(
-            "stylesheet media query outside supported screen/all/print subset".into(),
-        )),
-    }
-}
-fn styles(archive: &Archive, path: &str, doc: &roxmltree::Document<'_>) -> Result<Css> {
-    let mut sheets = Vec::new();
-    for n in doc.descendants() {
-        if n.has_tag_name("style") && screen_stylesheet(n)? {
-            sheets.push(all_text(n));
-        }
-        if n.has_tag_name("link")
-            && screen_stylesheet(n)?
-            && n.attribute("rel")
-                .is_some_and(|s| s.split_whitespace().any(|s| s == "stylesheet"))
-        {
-            let href = n
-                .attribute("href")
-                .ok_or_else(|| Error::Invalid("stylesheet link lacks href".into()))?;
-            let (resource, _) = resolve(path, href)?;
-            sheets.push(archive.text(&resource)?.to_owned());
-        }
-    }
-    Css::parse(&sheets).map_err(Error::Css)
-}
-
 struct Builder<'a> {
     path: &'a str,
-    css: &'a Css,
     blocks: Vec<Block>,
     current: Option<Block>,
     next_block: &'a mut usize,
@@ -493,8 +470,8 @@ impl Builder<'_> {
             let Some(parent) = n.parent_element() else {
                 return Ok(());
             };
-            let style = self.css.style(parent).map_err(Error::Css)?;
-            if style.display_none || !style.visible {
+            let style = style(parent);
+            if style.display_none {
                 return Ok(());
             }
             let text = n.text().unwrap_or("");
@@ -538,7 +515,7 @@ impl Builder<'_> {
         if matches!(tag, "head" | "script" | "style" | "template") {
             return Ok(());
         }
-        let style = self.css.style(n).map_err(Error::Css)?;
+        let style = style(n);
         if style.display_none {
             return Ok(());
         }
@@ -546,10 +523,9 @@ impl Builder<'_> {
             return Ok(());
         }
         if let Some(id) = n.attribute("id") {
-            let empty = style.visible
-                && n.children().all(|c| {
-                    c.is_comment() || (c.is_text() && c.text().unwrap_or("").trim().is_empty())
-                });
+            let empty = n.children().all(|c| {
+                c.is_comment() || (c.is_text() && c.text().unwrap_or("").trim().is_empty())
+            });
             self.anchors.insert(id.into(), (n.range(), empty));
         }
         if matches!(
@@ -569,9 +545,6 @@ impl Builder<'_> {
                 | "textarea"
                 | "button"
         ) {
-            if !style.visible {
-                return Ok(());
-            }
             self.flush();
             let mut block = self.block(if tag == "img" { "image" } else { "unsupported" });
             block.alt = Some(
@@ -819,7 +792,7 @@ pub fn verify_sources(path: &Path, book: &Book, limits: &Limits) -> Result<usize
         }
         let text =
             std::str::from_utf8(bytes).map_err(|_| Error::Invalid("source XML encoding".into()))?;
-        let doc = xml(text, limits)?;
+        let doc = xml(text, path, limits)?;
         for n in doc.descendants() {
             nodes.insert(
                 (path.clone(), node_path(n)),

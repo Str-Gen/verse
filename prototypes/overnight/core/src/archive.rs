@@ -15,7 +15,6 @@ pub struct Limits {
     pub xml_nodes: u32,
     pub xml_depth: usize,
     pub image_pixels: u64,
-    pub total_image_pixels: u64,
     pub text_scalars: usize,
 }
 
@@ -28,8 +27,7 @@ impl Default for Limits {
             expanded_bytes: 128 * 1024 * 1024,
             xml_nodes: 500_000,
             xml_depth: 128,
-            image_pixels: 16_000_000,
-            total_image_pixels: 64_000_000,
+            image_pixels: 40_000_000,
             text_scalars: 4_000_000,
         }
     }
@@ -108,22 +106,25 @@ impl Archive {
         let data = self
             .files
             .get(path)
-            .ok_or_else(|| Error::Invalid("missing publication resource".into()))?;
-        std::str::from_utf8(data)
-            .map_err(|_| Error::Invalid("only UTF-8 XML/CSS is supported".into()))
+            .ok_or_else(|| Error::Invalid(format!("missing publication resource: {path}")))?;
+        std::str::from_utf8(data).map_err(|_| Error::Invalid("only UTF-8 XML is supported".into()))
     }
 }
 
-pub(crate) fn xml<'a>(text: &'a str, limits: &Limits) -> Result<roxmltree::Document<'a>> {
+pub(crate) fn xml<'a>(
+    text: &'a str,
+    path: &str,
+    limits: &Limits,
+) -> Result<roxmltree::Document<'a>> {
     let doc = roxmltree::Document::parse_with_options(
         text,
         roxmltree::ParsingOptions {
-            allow_dtd: false,
+            allow_dtd: true,
             nodes_limit: limits.xml_nodes,
             ..Default::default()
         },
     )
-    .map_err(|_| Error::Invalid("XML parse failure (DTD/entities disabled)".into()))?;
+    .map_err(|error| Error::Invalid(format!("malformed XML/HTML in {path}: {error}")))?;
     if doc.descendants().any(|n| {
         n.ancestors()
             .take(limits.xml_depth.saturating_add(2))

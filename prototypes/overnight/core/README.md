@@ -37,7 +37,7 @@ Image and unsupported pieces are interruption events. Raster `resource` paths re
 
 Note reference runs have additive `note_id` fields. The main piece stream contains a manual note event at that position. Note bodies live in `Book.notes`, outside main playback. `playback::main_plan` skips manual references and proven ornaments, emits image/unsupported pauses, and emits boundaries before subsequent logical chapters. `visit_note` returns a note plan and the exact immediate main return piece. Notes do not recurse. Final `End` is distinct from a transition to another chapter; a frontend owns the final chapter feedback UI. No pacing timer or renderer is supplied here.
 
-Chapter IDs are resolved local destinations including fragments, not spine indices. A chapter can begin inside one file and continue into another. Inline fragment targets resolve to their whole multi-source word. Missing, hidden and note-only targets do not acquire later unrelated text. Duplicate XML IDs reject the import. Explicit front-matter/part semantics and a small exact English front-matter label list exclude title/cover/contents pages from chapter feedback while retaining their text. Other navigation entries define chapter ranges in reading order. Nested navigation entries currently have the same granularity as top-level entries; no general semantic chapter inference is claimed.
+Chapter IDs are resolved local destinations including fragments, not spine indices. A chapter can begin inside one file and continue into another. Inline fragment targets resolve to their whole multi-source word. Missing, hidden and note-only targets do not acquire later unrelated text. Duplicate or empty XHTML IDs produce diagnostics and structured warnings without blocking import or rewriting the source. Fragment navigation for duplicate IDs remains ambiguous. Explicit front-matter/part semantics and a small exact English front-matter label list exclude title/cover/contents pages from chapter feedback while retaining their text. Other navigation entries define chapter ranges in reading order. Nested navigation entries currently have the same granularity as top-level entries; no general semantic chapter inference is claimed.
 
 ## Identity and restoration
 
@@ -53,13 +53,11 @@ Both shells use the shared bounded JSON writer. State is capped at 1 MiB, while 
 
 State directories remain separate. There is no cross-process locking, directory fsync guarantee, or persisted playback clock/note excursion. Simultaneous-instance and power-loss recovery validation remain open. Feedback history is preserved as frontend preference data; its UI and semantics are not implemented by the core.
 
-## CSS boundary
+## Verse typography and XML
 
-CSS uses the `cssparser` tokenizer, never regex matching. Supported selectors are type, universal, class and ID compounds, descendant/child combinators and comma-separated lists. Cascade order includes specificity, source order, inline declarations and `!important`. Supported semantic properties are `display`, inherited `visibility`, `font-style` and explicit normal/bold/numeric `font-weight`. Ancestor `display:none` suppresses descendants even if they specify display; `visibility:visible` can restore a descendant of a visibility-hidden parent. HTML `hidden` is suppressed consistently.
+Verse ignores publisher CSS, including inline styles, embedded style elements, linked stylesheets, fonts, media queries and Adobe page templates. Missing or malformed styling resources do not block import. Headings and inline emphasis come from HTML tags. HTML `hidden` attributes suppress descendants; text hidden only by publisher CSS remains readable. Scripts, styles, templates and document heads never enter playback.
 
-Only absent/all/screen stylesheet media applies; print sheets are ignored. Other media expressions reject import. Alternate/disabled sheets are ignored. Plain unqualified `@page` margin and padding declarations are parsed and discarded because reader typography owns page layout. Other at-rules, unsupported selectors, relative font weights, generated content, opacity, clipping, whitespace transformations, font shorthand and animations reject import explicitly.
-
-Publisher color, background, font size, placement, dimensions, overflow and other layout declarations are parsed but discarded. Consequently this is not browser-equivalent visibility for transparent text, zero-size/offscreen text, clipping through layout, or every CSS feature. Only the stated display/visibility/hidden subset has visibility guarantees. Broader CSS needs a real style/layout integration; relaxing parser errors would not establish support. XML XHTML must be UTF-8. HTML error recovery, remote resources, fixed-layout books and DRM are unsupported.
+XML DOCTYPE declarations and bounded internal entities are accepted. External entities and external DTDs are never fetched. XML parse errors retain the underlying parser explanation. Archive, XML node/depth and text-size limits still apply. XHTML must be well-formed UTF-8 XML; HTML error recovery, remote resources, fixed-layout books and DRM remain unsupported.
 
 ## Ornament evidence
 
@@ -69,7 +67,13 @@ Repetition, small dimensions and empty alt text alone never justify skipping. An
 
 ## Bounds and verification
 
-Defaults cap compressed input at 64 MiB, 4096 ZIP entries, 16 MiB per expanded entry, 128 MiB actual total expansion, 500,000 nodes per XML document, depth 128, four million publication text scalars, 16 million pixels per image and 64 million image pixels overall. ZIP reads enforce actual expansion and reject mismatched size metadata, duplicate entries and unsafe archive paths. DTD entity expansion is disabled. CSS additionally bounds sheets, rule count, inline size and nesting. Image decoder allocation limits are best-effort; checked dimensions and pixel totals are explicit. These bounds are not an OS sandbox or a proven execution-time ceiling.
+Defaults cap compressed input at 64 MiB, 4096 ZIP entries, 16 MiB per expanded entry, 128 MiB actual total expansion, 500,000 nodes per XML document, depth 128, four million publication text scalars and 40 million pixels per image. There is no cumulative image-pixel budget. ZIP reads enforce actual expansion and reject mismatched size metadata, duplicate entries and unsafe archive paths. Bounded internal XML entities are accepted; external entities are never resolved. Image decoder allocation limits are best-effort; per-image dimensions are checked explicitly. These bounds are not an OS sandbox or a proven execution-time ceiling.
+
+JPEG, PNG, WebP, GIF, AVIF, BMP and TIFF are decoded. GIF, AVIF, BMP and TIFF are exported as PNG for consistent rendering in both frontends. GIF/TIFF/AVIF inspection and conversion use the first image/frame. Building AVIF support requires `pkg-config` and libdav1d development files.
+
+## Import logs
+
+The CLI uses `tracing` and `tracing-subscriber` to emit JSON events to stderr. Import start/end events and warnings are enabled by default; `RUST_LOG=reader_core=warn` selects warnings and errors. A duplicate-ID warning records `code`, `epub`, `document` and `id`. The EPUB and its IDs are never rewritten. Diagnostics also remain in the exported book JSON. To save importer logs separately from the export, run `reader-core export --epub book.epub --output book.json 2>import.jsonl`. Malformed XML/HTML reports the internal document path and parser position; damaged ZIP errors identify the missing archive directory or other underlying failure.
 
 ```sh
 cargo fmt --all -- --check

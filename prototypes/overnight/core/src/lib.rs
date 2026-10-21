@@ -4,11 +4,11 @@
 //! Import failures return without modifying a caller's current book. Output is reader data,
 //! never executable publisher HTML. See the component README for the CSS support boundary.
 mod archive;
-mod css;
 pub mod location;
 mod normalize;
 mod ornaments;
 pub mod playback;
+mod semantics;
 pub mod session;
 
 pub use archive::Limits;
@@ -146,18 +146,34 @@ pub struct ImportOptions {
 pub enum Error {
     #[error("I/O failure: {0}")]
     Io(#[from] std::io::Error),
-    #[error("invalid ZIP archive: {0}")]
+    #[error("cannot open EPUB: {}", zip_explanation(.0))]
     Zip(#[from] zip::result::ZipError),
+    #[error(
+        "image {resource} is {width} × {height} pixels, exceeding the per-image limit of {max_pixels} pixels"
+    )]
+    ImageTooLarge {
+        resource: String,
+        width: u32,
+        height: u32,
+        max_pixels: u64,
+    },
     #[error("resource limit exceeded: {0}")]
     Limit(&'static str),
     #[error("invalid EPUB: {0}")]
     Invalid(String),
-    #[error("unsupported CSS: {0}")]
-    Css(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 fn word_kind() -> String {
     "word".into()
+}
+
+fn zip_explanation(error: &zip::result::ZipError) -> String {
+    match error {
+        zip::result::ZipError::InvalidArchive(reason) if reason.contains("EOCD") => {
+            "the ZIP end-of-archive directory is missing; the file is incomplete or damaged".into()
+        }
+        _ => format!("invalid or damaged ZIP archive: {error}"),
+    }
 }

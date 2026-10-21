@@ -10,8 +10,16 @@ use std::{
 };
 
 fn main() {
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("reader_core=info")),
+        )
+        .with_writer(std::io::stderr)
+        .init();
     if let Err(error) = run() {
-        eprintln!("reader-core: {error}");
+        tracing::error!(code = "command_failed", reason = %error, "Verse could not complete the request");
         std::process::exit(1);
     }
 }

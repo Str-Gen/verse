@@ -13,8 +13,9 @@ The normal reading sequence contains these paragraphs, with headings, images, an
 ```
 Chapter One
 Café naïveté cooperate élan 👩‍🔬.
-A visible sentence.
-Restored child.
+A DISPLAY_SECRETvisible sentence.
+VISIBILITY_SECRET Restored child.
+DESCENDANT_SECRET
 Cascade visible.
 Before 1 after 2.
 Chapter Two
@@ -26,7 +27,7 @@ Final chapter.
 After unsupported vector content.
 ```
 
-The four markers `DISPLAY_SECRET`, `VISIBILITY_SECRET`, `HTML_SECRET`, and `DESCENDANT_SECRET` must not appear in exported visible reading text. A visibility-hidden parent has a visibility-visible child; its child must remain visible. A display-none parent contains a display-block child; both remain absent. `.cascade { display: none; }` loses to the element's inline `display:block`.
+Only `HTML_SECRET` is excluded by the HTML `hidden` attribute. The other markers are hidden only by publisher CSS and remain readable under Verse's own typography policy. Inline `em` and `strong` semantics remain intact.
 
 The source spelling of `state-of-the-art` and `Donaudampfschifffahrt` is preserved independently of user-approved display-piece splitting. Tests should distinguish lexical word identity from display-piece identity.
 
@@ -51,3 +52,5 @@ Starting the second spine file is not a chapter boundary. Notes are not a fourth
 ## Malformed cases
 
 `missing-resource.epub` omits the second spine resource. `malformed-xhtml.epub` contains an unclosed first XHTML document. `path-traversal.epub` contains a `../escape.txt` entry and must never write outside any destination directory. `not-zip.epub` is plain text. Exact error or warning behavior belongs to the normalizer, but successful output must not silently claim complete content when a required resource is missing or malformed. Resource-limit tests can generate bounded archives at test runtime without committing large compressed bombs.
+
+`pixels.avif` is a synthetic 4 × 3 solid-color test image generated with `magick -size 4x3 xc:'#356ca5' pixels.avif`. It exercises actual AVIF decoding and PNG export.

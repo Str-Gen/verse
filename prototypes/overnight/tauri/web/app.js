@@ -1,5 +1,5 @@
 import { startTheme } from './theme.js';
-import { validateBook, sourceIndex, runSegments, chapterAt, position, restore } from './model.js';
+import { validateBook, sourceIndex, runSegments, chapterAt, position, restore, localImage } from './model.js';
 const $ = id => document.getElementById(id);
 const native = window.__TAURI__?.core;
 const storageKey = 'overnight-tauri-browser-v1';
@@ -51,12 +51,6 @@ function makeText(run) {
     parent.append(el);
   }
   return wrapper;
-}
-function localImage(resource) {
-  // Only this bundled illustration and bounded embedded raster data are accepted.
-  if (resource === 'synthetic-landscape.svg') return resource;
-  if (typeof resource === 'string' && resource.length < 8_000_000 && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(resource)) return resource;
-  return null;
 }
 function render() {
   const article = $('book'); article.replaceChildren(); blocks.clear(); sourceMap = sourceIndex(book);

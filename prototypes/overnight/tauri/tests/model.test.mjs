@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { validateBook, sourceIndex, runSegments, restore, position, utf16ToScalar } from '../web/model.js';
+import { validateBook, sourceIndex, runSegments, restore, position, utf16ToScalar, localImage } from '../web/model.js';
 const book = validateBook(JSON.parse(await readFile(new URL('../web/demo.json', import.meta.url))));
 test('all normalized scalar runs retain text through piece mapping', () => {
   const index = sourceIndex(book);
@@ -40,4 +40,12 @@ test('split compound pieces retain separate exact source anchors', () => {
   assert.equal(fragments.filter(s=>s.piece===at).map(s=>s.text).join(''),'un');
   assert.equal(fragments.filter(s=>s.piece===at+1).map(s=>s.text).join(''),'believable');
   assert.deepEqual(restore(split,position(split,at+1)),{kind:'exact',at:at+1});
+});
+
+test('large embedded images reach the renderer while external and executable URLs stay rejected', () => {
+  const large = 'data:image/png;base64,' + 'A'.repeat(8_000_004);
+  assert.equal(localImage(large), large);
+  for (const value of ['https://example.com/image.png', 'file:///tmp/image.png', 'javascript:alert(1)', 'data:image/svg+xml;base64,AAAA']) {
+    assert.equal(localImage(value), null);
+  }
 });

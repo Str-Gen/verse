@@ -22,7 +22,7 @@ fn block_text(book: &Book) -> Vec<String> {
 }
 
 #[test]
-fn visible_text_preserves_unicode_inline_words_and_supported_visibility() -> TestResult {
+fn verse_preserves_unicode_inline_semantics_and_html_hidden() -> TestResult {
     let book = load("complex.epub")?;
     let visible = block_text(&book);
     assert!(
@@ -30,17 +30,21 @@ fn visible_text_preserves_unicode_inline_words_and_supported_visibility() -> Tes
             .iter()
             .any(|s| s == "Café naïveté cooperate élan 👩‍🔬.")
     );
-    assert!(visible.iter().any(|s| s == "A visible sentence."));
-    assert!(visible.iter().any(|s| s == "Restored child."));
+    assert!(
+        visible
+            .iter()
+            .any(|s| s == "A DISPLAY_SECRETvisible sentence.")
+    );
+    assert!(
+        visible
+            .iter()
+            .any(|s| s == "VISIBILITY_SECRET Restored child.")
+    );
     assert!(visible.iter().any(|s| s == "Cascade visible."));
     let exported = serde_json::to_string(&book)?;
-    for hidden in [
-        "DISPLAY_SECRET",
-        "VISIBILITY_SECRET",
-        "HTML_SECRET",
-        "DESCENDANT_SECRET",
-    ] {
-        assert!(!exported.contains(hidden), "hidden text leaked: {hidden}");
+    assert!(!exported.contains("HTML_SECRET"));
+    for publisher_hidden in ["DISPLAY_SECRET", "VISIBILITY_SECRET", "DESCENDANT_SECRET"] {
+        assert!(exported.contains(publisher_hidden));
     }
     let naive = book
         .pieces
@@ -327,10 +331,6 @@ fn malformed_publications_and_resource_limits_fail_explicitly() -> TestResult {
             ..Limits::default()
         },
         Limits {
-            total_image_pixels: 10,
-            ..Limits::default()
-        },
-        Limits {
             text_scalars: 10,
             ..Limits::default()
         },
@@ -345,7 +345,10 @@ fn malformed_publications_and_resource_limits_fail_explicitly() -> TestResult {
             },
         );
         assert!(
-            matches!(result, Err(Error::Limit(_) | Error::Invalid(_))),
+            matches!(
+                result,
+                Err(Error::Limit(_) | Error::Invalid(_) | Error::ImageTooLarge { .. })
+            ),
             "resource limit {index} did not reject"
         );
     }
@@ -537,10 +540,66 @@ fn hidden_and_manual_note_fragments_cannot_capture_later_visible_text() -> TestR
 }
 
 #[test]
-fn duplicate_fragment_identifiers_are_rejected() -> TestResult {
+fn duplicate_ids_preserve_content_and_emit_structured_warnings() -> TestResult {
     let page = synthetic_xhtml(r#"<h1 id="same">One</h1><p id="same">Two</p>"#, "");
     let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", page.as_bytes())])?;
-    assert!(matches!(fixture.import(), Err(Error::Invalid(_))));
+    let original = std::fs::read(&fixture.path)?;
+    let book = fixture.import()?;
+    let text = block_text(&book).join(" ");
+    assert!(text.contains("One"));
+    assert!(text.contains("Two"));
+    assert!(
+        book.diagnostics
+            .iter()
+            .any(|d| d.contains("duplicate_xhtml_id") && d.contains("same"))
+    );
+    verify_sources(&fixture.path, &book, &Limits::default())?;
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_reader-core"))
+        .args(["check", "--epub"])
+        .arg(&fixture.path)
+        .arg("--store")
+        .arg(fixture.root.join("store"))
+        .env("RUST_LOG", "reader_core=warn")
+        .output()?;
+    assert!(result.status.success());
+    let events: Vec<serde_json::Value> = String::from_utf8(result.stderr)?
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<std::result::Result<_, _>>()?;
+    let warning = events
+        .iter()
+        .find(|event| event["fields"]["code"] == "duplicate_xhtml_id")
+        .ok_or("duplicate warning missing")?;
+    assert_eq!(warning["level"], "WARN");
+    assert_eq!(warning["fields"]["document"], "EPUB/a.xhtml");
+    assert_eq!(warning["fields"]["id"], "same");
+    assert_eq!(
+        warning["fields"]["epub"],
+        fixture.path.to_string_lossy().as_ref()
+    );
+    assert_eq!(std::fs::read(&fixture.path)?, original);
+    Ok(())
+}
+
+#[test]
+fn opening_errors_identify_malformed_document_and_truncated_archive() -> TestResult {
+    let page = synthetic_xhtml("<p>Broken</div>", "");
+    let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", page.as_bytes())])?;
+    let error = fixture
+        .import()
+        .err()
+        .ok_or("malformed markup accepted")?
+        .to_string();
+    assert!(error.contains("malformed XML/HTML in EPUB/a.xhtml"));
+    assert!(error.contains("p") && error.contains("div") && error.contains(" at "));
+    let bytes = std::fs::read(&fixture.path)?;
+    std::fs::write(&fixture.path, &bytes[..32])?;
+    let error = fixture
+        .import()
+        .err()
+        .ok_or("truncated ZIP accepted")?
+        .to_string();
+    assert!(error.contains("end-of-archive directory is missing"));
     Ok(())
 }
 
@@ -569,24 +628,58 @@ fn semantic_and_named_title_pages_remain_readable_without_chapter_pauses() -> Te
 }
 
 #[test]
-fn stylesheet_media_is_screen_specific_and_unknown_queries_are_errors() -> TestResult {
-    let body = r#"<p class="print">Print-visible passage.</p><p class="screen">SCREEN_SECRET</p>"#;
-    let head = r#"<style media="print">.print { display:none; }</style><link rel="stylesheet" media="screen" href="media.css"/>"#;
+fn publisher_css_and_missing_layout_never_block_content() -> TestResult {
+    let body = r#"<p class="screen" style="font: nonsense; display:none">Readable passage.</p><p hidden="hidden">HTML_SECRET</p><p><em>Emphasis</em> <strong>Strong</strong></p>"#;
+    let head = r#"<style media="screen and (min-width: 500px)">@font-face { broken } p::before { content: 'CSS_SECRET'; } p { display:none; }</style><link rel="stylesheet" href="missing.css"/><link rel="stylesheet" type="application/adobe-page-template+xml" href="missing.xpgt"/>"#;
     let page = synthetic_xhtml(body, head);
-    let fixture = ModifiedFixture::new(&[
-        ("EPUB/a.xhtml", page.as_bytes()),
-        ("EPUB/media.css", b".screen { display:none; }"),
-    ])?;
+    let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", page.as_bytes())])?;
     let book = fixture.import()?;
-    let exported = serde_json::to_string(&book)?;
-    assert!(exported.contains("Print-visible passage."));
-    assert!(!exported.contains("SCREEN_SECRET"));
-    let unsupported = synthetic_xhtml(
-        body,
-        r#"<style media="screen and (min-width: 500px)">p { display:none; }</style>"#,
+    let text = block_text(&book).join(" ");
+    assert!(text.contains("Readable passage."));
+    assert!(!text.contains("HTML_SECRET"));
+    assert!(!text.contains("CSS_SECRET"));
+    let runs: Vec<_> = book
+        .documents
+        .iter()
+        .flat_map(|d| &d.blocks)
+        .flat_map(|b| &b.runs)
+        .collect();
+    assert!(runs.iter().any(|r| r.text == "Emphasis" && r.emphasis));
+    assert!(runs.iter().any(|r| r.text == "Strong" && r.strong));
+    verify_sources(&fixture.path, &book, &Limits::default())?;
+    Ok(())
+}
+
+#[test]
+fn doctypes_allow_content_without_resolving_external_entities() -> TestResult {
+    for declaration in [
+        r#"<!DOCTYPE html>"#,
+        r#"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">"#,
+        r#"<!DOCTYPE html [<!ENTITY word "Readable">]>"#,
+    ] {
+        let body = if declaration.contains("ENTITY") {
+            "<p>&word; passage.</p>"
+        } else {
+            "<p>Readable passage.</p>"
+        };
+        let page = format!("{declaration}{}", synthetic_xhtml(body, ""));
+        let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", page.as_bytes())])?;
+        let book = fixture.import()?;
+        assert!(block_text(&book).join(" ").contains("Readable passage."));
+        verify_sources(&fixture.path, &book, &Limits::default())?;
+    }
+    let page = format!(
+        r#"<!DOCTYPE html [<!ENTITY secret SYSTEM "file:///etc/passwd">]>{}"#,
+        synthetic_xhtml("<p>&secret;</p>", "")
     );
-    let variant = ModifiedFixture::new(&[("EPUB/a.xhtml", unsupported.as_bytes())])?;
-    assert!(matches!(variant.import(), Err(Error::Css(_))));
+    let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", page.as_bytes())])?;
+    assert!(fixture.import().is_err());
+    let page = format!(
+        r#"<!DOCTYPE html [<!ENTITY loop "&loop;">]>{}"#,
+        synthetic_xhtml("<p>&loop;</p>", "")
+    );
+    let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", page.as_bytes())])?;
+    assert!(fixture.import().is_err());
     Ok(())
 }
 
