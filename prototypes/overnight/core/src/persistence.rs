@@ -1,4 +1,5 @@
 //! Per-publication durable state and process-lifetime exclusion shared by native readers.
+use crate::book_store::DiskBook;
 use crate::location::{LocationError, SavedLocation, read_json, write_json};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -88,23 +89,57 @@ pub fn load_record(legacy_path: &Path, book_id: &str) -> Result<Option<Value>, L
 /// damaged checkpoint. Preserve the newest proposal if every revision changed.
 pub fn load_record_for_book(
     legacy_path: &Path,
-    book: &crate::book_store::DiskBook,
+    book: &DiskBook,
 ) -> Result<Option<Value>, LocationError> {
     let mut proposal = None;
     let exact = select_record(legacy_path, &book.metadata().book_id, |record| {
-        let resume = book.restore(Some(&record)).map_err(|error| match error {
-            crate::Error::Io(error) => LocationError::Io(error),
-            error => LocationError::InvalidLocation(error.to_string()),
-        })?;
+        let resume = book.restore(Some(&record)).map_err(location_error)?;
         if resume.kind == "exact" {
             return Ok(Some(record));
         }
         if proposal.is_none() {
-            proposal = Some(record);
+            proposal = Some((record, resume));
         }
         Ok(None)
     })?;
-    Ok(exact.or(proposal))
+    if exact.is_some() {
+        return Ok(exact);
+    }
+    let Some((record, resume)) = proposal else {
+        return Ok(None);
+    };
+    let title = record
+        .get("location")
+        .and_then(|location| location.get("chapter_title"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            record
+                .get("chapter")
+                .and_then(|chapter| chapter.get("title"))
+                .and_then(Value::as_str)
+        });
+    let chapter_matches = book
+        .metadata()
+        .chapters
+        .iter()
+        .zip(book.chapter_starts())
+        .any(|(chapter, start)| *start == resume.at && Some(chapter.title.as_str()) == title);
+    if resume.kind == "chapter"
+        && record["revision"].as_str() == Some(book.metadata().revision.as_str())
+        && chapter_matches
+    {
+        return book
+            .capture(resume.at, &record)
+            .map(Some)
+            .map_err(location_error);
+    }
+    Ok(Some(record))
+}
+fn location_error(error: crate::Error) -> LocationError {
+    match error {
+        crate::Error::Io(error) => LocationError::Io(error),
+        error => LocationError::InvalidLocation(error.to_string()),
+    }
 }
 
 fn select_record(
@@ -150,13 +185,48 @@ pub fn save_record(
     record: &Value,
     chapter: &Value,
 ) -> Result<(), LocationError> {
+    save_record_checked(legacy_path, book_id, record, chapter, |_| Ok(true))
+}
+
+/// Validate the previous source anchor before replacing a known-good backup.
+/// The caller holds the publication lock and supplies captured current/chapter records.
+pub fn save_record_for_book(
+    legacy_path: &Path,
+    book: &DiskBook,
+    record: &Value,
+    chapter: &Value,
+) -> Result<(), LocationError> {
+    for checkpoint in [record, chapter] {
+        if book.restore(Some(checkpoint)).map_err(location_error)?.kind != "exact" {
+            return Err(LocationError::InvalidLocation(
+                "checkpoint has no exact source anchor".into(),
+            ));
+        }
+    }
+    save_record_checked(
+        legacy_path,
+        &book.metadata().book_id,
+        record,
+        chapter,
+        |previous| Ok(book.restore(Some(previous)).map_err(location_error)?.kind == "exact"),
+    )
+}
+fn save_record_checked(
+    legacy_path: &Path,
+    book_id: &str,
+    record: &Value,
+    chapter: &Value,
+    mut accept_previous: impl FnMut(&Value) -> Result<bool, LocationError>,
+) -> Result<(), LocationError> {
     if !valid_record(record, book_id) || !valid_record(chapter, book_id) {
         return Err(LocationError::InvalidLocation(
             "invalid publication checkpoint".into(),
         ));
     }
     let path = record_path(legacy_path, book_id);
-    if let Some(previous) = candidate(&path, book_id)? {
+    if let Some(previous) = candidate(&path, book_id)?
+        && accept_previous(&previous)?
+    {
         write_json(&path.with_extension("backup.json"), &previous)?;
     } else if path.exists() {
         // Keep the first damaged record without growing an unbounded evidence archive.
@@ -207,16 +277,37 @@ mod tests {
             write_json(&path.with_extension("backup.json"), &exact)?;
             write_json(&path.with_extension("chapter.json"), &chapter)?;
             assert_eq!(load_record_for_book(&legacy, &book)?, Some(exact.clone()));
-            assert_eq!(load_record(&legacy, "book")?, Some(broken));
+            assert_eq!(load_record(&legacy, "book")?, Some(broken.clone()));
+            save_record_for_book(&legacy, &book, &chapter, &chapter)?;
+            assert_eq!(
+                read_json::<Value>(&path.with_extension("backup.json"))?,
+                exact
+            );
+            fs::write(&path, b"{")?;
+            assert_eq!(load_record_for_book(&legacy, &book)?, Some(exact.clone()));
+            write_json(&path, &broken)?;
             fs::remove_file(path.with_extension("backup.json"))?;
             assert_eq!(load_record_for_book(&legacy, &book)?, Some(chapter.clone()));
+            fs::remove_file(path.with_extension("chapter.json"))?;
+            let fallback =
+                load_record_for_book(&legacy, &book)?.ok_or("missing chapter fallback")?;
+            assert_eq!(book.restore(Some(&fallback))?.kind, "exact");
+            assert_eq!(book.restore(Some(&fallback))?.at, 0);
+            assert_eq!(read_json::<Value>(&path)?, broken);
+            assert!(save_record_for_book(&legacy, &book, &broken, &chapter).is_err());
         }
         let mut changed = exact.clone();
         changed["revision"] = json!("old");
         changed["location"]["revision"] = json!("old");
         write_json(&path, &changed)?;
-        fs::remove_file(path.with_extension("chapter.json"))?;
+        assert_eq!(load_record_for_book(&legacy, &book)?, Some(changed.clone()));
+        changed["location"]["chapter_title"] = json!("Renamed chapter");
+        assert_eq!(book.restore(Some(&changed))?.kind, "unresolved");
+        write_json(&path, &changed)?;
         assert_eq!(load_record_for_book(&legacy, &book)?, Some(changed));
+        let mut misleading = exact.clone();
+        misleading["piece_index"] = json!(0);
+        assert_eq!(book.restore(Some(&misleading))?.at, 1);
         fs::remove_dir_all(root)?;
         Ok(())
     }

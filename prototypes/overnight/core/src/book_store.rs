@@ -301,6 +301,23 @@ impl DiskBook {
             let sources: Vec<SourceSpan> =
                 serde_json::from_value(sources.clone()).map_err(invalid)?;
             let text = location.get("text").and_then(Value::as_str);
+            if let Some(at) = saved
+                .get("piece_index")
+                .and_then(Value::as_u64)
+                .and_then(|at| usize::try_from(at).ok())
+                .filter(|at| *at < self.total)
+            {
+                let piece = self.piece(at)?;
+                if !sources.is_empty()
+                    && piece.sources == sources
+                    && text == Some(piece.text.as_str())
+                {
+                    return Ok(session::Resume {
+                        kind: "exact".into(),
+                        at,
+                    });
+                }
+            }
             if let Some(at) = self.find(|p| {
                 !sources.is_empty() && p.sources == sources && text.is_none_or(|t| p.text == t)
             })? {
@@ -337,11 +354,19 @@ impl DiskBook {
                     .get("chapter")
                     .and_then(|c| c.as_str().or_else(|| c.get("id").and_then(Value::as_str)))
             });
-        let index = self
-            .metadata
-            .chapters
-            .iter()
-            .position(|c| Some(c.id.as_str()) == chapter);
+        let title = location
+            .get("chapter_title")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                saved
+                    .get("chapter")
+                    .and_then(|chapter| chapter.get("title"))
+                    .and_then(Value::as_str)
+            });
+        let index = self.metadata.chapters.iter().position(|c| {
+            Some(c.id.as_str()) == chapter
+                && (revision == self.metadata.revision || Some(c.title.as_str()) == title)
+        });
         Ok(session::Resume {
             kind: if index.is_some() {
                 "chapter"
@@ -383,7 +408,9 @@ impl DiskBook {
                 book.chapters.push(chapter);
             }
         }
-        session::capture(&book, at - start, preferences).map_err(invalid)
+        let mut record = session::capture(&book, at - start, preferences).map_err(invalid)?;
+        record["piece_index"] = serde_json::json!(at);
+        Ok(record)
     }
     pub fn load_window(&self, at: usize) -> Result<BookWindow> {
         if self.total > 0 && at >= self.total {
