@@ -826,11 +826,13 @@ fn streaming_export_matches_normalization_and_preserves_failed_output() -> TestR
     let root = std::env::temp_dir().join(format!("reader-export-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root)?;
     let output = root.join("book.json");
-    for name in ["complex.epub", "unicode.epub", "ornaments.epub"] {
+    for name in [
+        "complex.epub",
+        "legacy.epub",
+        "revised.epub",
+        "unrelated.epub",
+    ] {
         let path = fixture(name);
-        if !path.exists() {
-            continue;
-        }
         let expected = import_epub(&path, "streamed-book", &ImportOptions::default())?;
         let summary =
             reader_core::export_epub(&path, "streamed-book", &ImportOptions::default(), &output)?;
@@ -854,6 +856,71 @@ fn streaming_export_matches_normalization_and_preserves_failed_output() -> TestR
     );
     assert_eq!(std::fs::read(&output)?, before);
     assert_eq!(std::fs::read_dir(&root)?.count(), 2);
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn streaming_long_epub_reads_last_window_without_collecting_book() -> TestResult {
+    use std::fmt::Write as _;
+    use std::io::Write;
+    let root = std::env::temp_dir().join(format!("reader-long-export-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root)?;
+    let epub = root.join("long.epub");
+    let output = root.join("book.json");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&epub)?);
+    let zip_options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    zip.start_file("mimetype", zip_options)?;
+    zip.write_all(b"application/epub+zip")?;
+    zip.start_file("META-INF/container.xml", zip_options)?;
+    zip.write_all(
+        br#"<container><rootfiles><rootfile full-path="package.opf"/></rootfiles></container>"#,
+    )?;
+    let mut package = String::from(
+        r#"<package><metadata><title>Long synthetic publication</title></metadata><manifest>"#,
+    );
+    let chapters = 128;
+    let words_per_chapter = 192;
+    for chapter in 0..chapters {
+        write!(
+            package,
+            r#"<item id="c{chapter}" href="c{chapter}.xhtml" media-type="application/xhtml+xml"/>"#
+        )?;
+    }
+    package.push_str("</manifest><spine>");
+    for chapter in 0..chapters {
+        write!(package, r#"<itemref idref="c{chapter}"/>"#)?;
+    }
+    package.push_str("</spine></package>");
+    zip.start_file("package.opf", zip_options)?;
+    zip.write_all(package.as_bytes())?;
+    let word = "a".repeat(511);
+    for chapter in 0..chapters {
+        zip.start_file(format!("c{chapter}.xhtml"), zip_options)?;
+        zip.write_all(b"<html><head/><body><p>")?;
+        for _ in 0..words_per_chapter {
+            write!(zip, "{word} ")?;
+        }
+        zip.write_all(b"</p></body></html>")?;
+    }
+    zip.finish()?;
+    assert!(std::fs::metadata(&epub)?.len() > 10 * 1024 * 1024);
+    let options = ImportOptions {
+        limits: Limits {
+            text_scalars: 32 * 1024 * 1024,
+            ..Limits::default()
+        },
+    };
+    let summary = reader_core::export_epub(&epub, "long-synthetic", &options, &output)?;
+    assert_eq!(summary.documents, chapters);
+    assert_eq!(summary.pieces, chapters * words_per_chapter);
+    let disk = reader_core::book_store::DiskBook::open(&output)?;
+    assert_eq!(disk.total_pieces(), summary.pieces);
+    let last = disk.load_window(summary.pieces - 1)?;
+    assert!(last.book.pieces.len() <= reader_core::book_store::WINDOW_PIECES);
+    assert_eq!(disk.piece(summary.pieces - 1)?.text, word);
+    drop(disk);
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
