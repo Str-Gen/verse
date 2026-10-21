@@ -22,7 +22,11 @@ ApplicationWindow {
     palette.highlight: theme.selection
     palette.highlightedText: theme.selectionForeground
     property bool playback: false
-    property int textSize: 22
+    property int textSize: 20
+    property bool controlsVisible: false
+    font.family: "IBM Plex Mono"
+    font.pixelSize: 12
+    FontMetrics { id: readingMetrics; font.family: "IBM Plex Mono"; font.pixelSize: window.textSize * theme.textScale }
     property var pages: [{ y: 0, position: 0 }]
     property int page: 0
     property bool ready: false
@@ -35,6 +39,7 @@ ApplicationWindow {
     }
     function paginate() {
         if (!ready || viewport.height < 100 || editor.contentHeight <= 0) return
+        support.fitImages(editor, Math.max(1, editor.width - 8), Math.max(1, viewport.height - editor.font.pixelSize * 3))
         let result = [{y: 0, position: 0}]
         let y = 0
         while (y + viewport.height < editor.contentHeight) {
@@ -154,10 +159,11 @@ ApplicationWindow {
     }
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 28
-        spacing: 18
+        anchors.margins: 12
+        anchors.topMargin: Math.max(42, Math.round(window.height * 0.05))
+        spacing: 6
         RowLayout {
-            visible: !playback
+            visible: controlsVisible && !playback
             Layout.fillWidth: true
             Label { text: reader.title; textFormat: Text.PlainText; elide: Text.ElideRight; Layout.fillWidth: true; font.pixelSize: 15 }
             Button { text: "Open JSON"; onClicked: openDialog.open() }
@@ -170,7 +176,7 @@ ApplicationWindow {
             Layout.fillHeight: true
             Item {
                 id: viewport
-                width: Math.min(760, parent.width - 48)
+                width: Math.min(readingMetrics.averageCharacterWidth * 65, Math.max(360, window.width - readingMetrics.averageCharacterWidth * 20), Math.max(0, parent.width - 24))
                 height: parent.height
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: !playback
@@ -193,12 +199,12 @@ ApplicationWindow {
                         selectByMouse: true
                         persistentSelection: true
                         wrapMode: TextEdit.Wrap
-                        font.family: "Noto Serif"
+                        font.family: "IBM Plex Mono"
                         font.pixelSize: window.textSize * theme.textScale
                         color: theme.foreground
                         selectionColor: theme.selection
                         selectedTextColor: theme.selectionForeground
-                        renderType: Text.NativeRendering
+                        renderType: theme.textScale % 1 === 0 ? Text.NativeRendering : Text.QtRendering
                         onContentHeightChanged: reflow.restart()
                         Accessible.name: "Book text. Select a passage, then press Space to play."
                     }
@@ -214,7 +220,7 @@ ApplicationWindow {
                     text: reader.word
                     textFormat: Text.PlainText
                     color: theme.foreground
-                    font.family: "Noto Serif"
+                    font.family: "IBM Plex Mono"
                     font.pixelSize: Math.min(54, stage.width / Math.max(10, text.length) * 1.5)
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
@@ -237,6 +243,7 @@ ApplicationWindow {
         }
         Label {
             Layout.fillWidth: true
+            visible: reader.status !== "Stopped" && reader.status !== "Reading"
             text: reader.status
             textFormat: Text.PlainText
             font.pixelSize: 12
@@ -246,13 +253,15 @@ ApplicationWindow {
         }
         RowLayout {
             Layout.fillWidth: true
-            Button { text: playback ? "Return to text" : "Previous"; onClicked: playback ? returnToText() : turn(-1) }
+            opacity: 0.65
+            ToolButton { text: "⋯"; Accessible.name: "Reader controls"; onClicked: controlsVisible = !controlsVisible }
+            ToolButton { text: playback ? "Return to text" : "Previous"; onClicked: playback ? returnToText() : turn(-1) }
             Label { visible: !playback; text: (page + 1) + " / " + pages.length; opacity: 0.6 }
-            Button { visible: !playback; text: "Next"; onClicked: turn(1) }
+            ToolButton { visible: !playback; text: "Next"; onClicked: turn(1) }
             Item { Layout.fillWidth: true }
-            Label { text: "WPM"; opacity: 0.6 }
-            SpinBox { id: speedBox; from: 60; to: 1200; stepSize: 25; value: reader.speed; onValueModified: reader.change_speed(value); Accessible.name: "Words per minute" }
-            Button { text: reader.playing ? "Pause" : playback ? "Continue" : "Play selection"; onClicked: reader.playing ? reader.pause() : begin() }
+            Label { visible: controlsVisible; text: "WPM"; opacity: 0.6 }
+            SpinBox { id: speedBox; visible: controlsVisible; from: 60; to: 1200; stepSize: 25; value: reader.speed; onValueModified: reader.change_speed(value); Accessible.name: "Words per minute" }
+            ToolButton { text: reader.playing ? "Pause" : playback ? "Continue" : "Play selection"; onClicked: reader.playing ? reader.pause() : begin() }
         }
     }
     Timer { id: smokeTimer; interval: 700; onTriggered: smoke.run() }

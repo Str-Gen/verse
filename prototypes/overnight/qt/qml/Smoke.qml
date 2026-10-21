@@ -48,6 +48,21 @@ QtObject {
             check(report.plainText === reader.plain_text, "integrated core text matches native UTF-16 layout")
             check(report.italic > 0 && report.bold > 0 && report.headings > 0, "integrated core structure renders natively")
             check(report.images === 5 && report.loadedImages === 5, "all five core raster occurrences decode in Qt")
+            for (let size of report.imageSizes) {
+                check(Math.abs(size.width * size.naturalHeight - size.height * size.naturalWidth) < 0.1,
+                      "image preserves intrinsic aspect ratio")
+                check(size.width <= size.naturalWidth && size.height <= size.naturalHeight,
+                      "small images are not enlarged")
+            }
+            check(report.plainText.indexOf("[]") < 0, "no empty image captions")
+            support.fitImages(editor, 20, 10)
+            for (let size of support.inspectDocument(editor).imageSizes) {
+                check(size.width <= 20 && size.height <= 10 &&
+                      Math.abs(size.width * size.naturalHeight - size.height * size.naturalWidth) < 0.1,
+                      "images fit narrow bounds without distortion")
+            }
+            host.paginate()
+            check(support.inspectDocument(editor).plainText === reader.plain_text, "image resize preserves source positions")
             host.showNote("note:EPUB/notes.xhtml#n1")
             check(host.noteVisible && host.noteText.indexOf("manual note") >= 0, "core note link opens manual note dialog")
             host.closeNote()

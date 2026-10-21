@@ -692,7 +692,9 @@ type Rendered = (String, String, Vec<(usize, usize)>);
 type NodePositions = BTreeMap<usize, (usize, usize)>;
 
 fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
-    let mut html = String::from("<html><body>");
+    let mut html = String::from(
+        "<html><head><style>p { line-height: 140%; } h1, h2, h3, h4, h5, h6 { font-size: large; margin-top: 20px; margin-bottom: 12px; }</style></head><body>",
+    );
     let mut plain = String::new();
     let mut source_positions: BTreeMap<(&str, &str), NodePositions> = BTreeMap::new();
     let mut blocks = BTreeMap::new();
@@ -738,17 +740,23 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
                 } else {
                     local_image_uri(resource, directory)?
                 };
-                html.push_str(&format!(
-                    "<img src=\"{}\" width=\"320\" height=\"120\" />",
-                    escape(&uri)
-                ));
+                html.push_str(&format!("<img src=\"{}\" />", escape(&uri)));
                 plain.push('\u{fffc}');
                 utf16 += 1;
             }
-            let caption = format!(" [{}]", block.alt.as_deref().unwrap_or("Image"));
-            html.push_str(&escape(&caption));
-            plain.extend(caption.chars().map(qt_plain_character));
-            utf16 += caption.encode_utf16().count();
+            if block.resource.is_none() {
+                let caption = format!(
+                    "[{}]",
+                    block
+                        .alt
+                        .as_deref()
+                        .filter(|alt| !alt.trim().is_empty())
+                        .unwrap_or("Image unavailable")
+                );
+                html.push_str(&escape(&caption));
+                plain.extend(caption.chars().map(qt_plain_character));
+                utf16 += caption.encode_utf16().count();
+            }
         }
         if block.kind == "unsupported" {
             let label = "[Unsupported content] ";
