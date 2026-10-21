@@ -87,12 +87,18 @@ No installer bundle was built. Executable and linked-library totals are separate
 | Worker | Original HEAD | Merge | Cleanup |
 | --- | --- | --- | --- |
 | core | `0f36d23478a88a9d4bb64aa6bc157c42750b9de6` | Retained by real merge | Retain worktree: independent SVG conformance and recovery policy differences remain open |
-| Qt | `f3a00de9c1f3f97c0832e048a632f0ba929dcece` | Retained by real merge | Pending backup and final clean/ancestry recheck |
-| Tauri | `69873f1efea9f395f97db64616766d3ec1a819d8` | Retained by real merge | Pending backup and final clean/ancestry recheck |
+| Qt | `f3a00de9c1f3f97c0832e048a632f0ba929dcece` | Retained by real merge | Removed with ordinary `git worktree remove` after verified backup and clean/ancestry recheck |
+| Tauri | `69873f1efea9f395f97db64616766d3ec1a819d8` | Retained by real merge | Removed with ordinary `git worktree remove` after verified backup and clean/ancestry recheck |
 | validation | `38e0b5f958c54a85b8f0e6515945322558e2b32d` | Retained by real merge | Retain worktree: original suite has one failing case and generic native trace drivers remain pending |
 
-Qt and Tauri's relevant integrated native/build checks passed. Only those two worker directories are candidates for removal. Core and validation are retained conservatively because their remaining integration gates are not fully green. All branch refs remain. No worker checkout was modified to make it clean.
+Qt and Tauri's relevant integrated native/build checks passed. Those two worker directories were removed successfully without force. Both one-command launchers were then verified from the integration tree, including Tauri launched from `/tmp`. Core and validation are retained conservatively because their remaining integration gates are not fully green. All branch refs remain. No worker checkout was modified to make it clean.
 
 The primary checkout remains on `planning/epub-reader`. The integration tree and all older/unlisted prototype/research trees remain. No push, publish, external-service message, paid API, parent `.key` access, privileged installation or desktop-theme change occurred.
 
-Final archive/removal outcomes will be recorded here after the gated cleanup. The control directory receives this report and `integration-result.json` with the final integration HEAD.
+Backups and evidence are in `/home/strgenix/speedreading/overnight-20261021/archives/`:
+
+- `workers-before-cleanup.bundle`, verified with `git bundle verify`, contains all four worker branch refs plus the integrated-code commit and their history.
+- `worker-1-core-evidence.tar.gz`, `worker-2-qt-evidence.tar.gz`, `worker-3-tauri-evidence.tar.gz`, and `worker-4-validation-evidence.tar.gz` preserve each original component, REPORT.md, completion marker, and non-build evidence/state/logs. Only build/dependency/cache directories were excluded. All four archives were read back before removal; hashes and inventories are in `worker-archive-inventory.json`.
+- `integration-handoff.tar.gz` preserves the final integrated component sources, synthetic evidence/logs/state, this report and the updated planning map/tickets. Build outputs are excluded.
+
+The control directory also contains `integration-inspection.json`, `cleanup-result.json`, a copy of this report, and `integration-result.json` with the final integration HEAD, checks, removed/retained worktrees and archive hashes. The final report-only commit follows the bundle's integrated-code commit. All worker commits remain ancestors of final integration HEAD and every worker branch ref remains intact.
