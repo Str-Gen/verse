@@ -1,0 +1,18 @@
+[workspace]
+members = ["crates/reader-core", "crates/reader-cli", "apps/qt", "apps/tauri/src-tauri"]
+default-members = ["crates/reader-core", "crates/reader-cli"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 2

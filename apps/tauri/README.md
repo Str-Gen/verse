@@ -1,0 +1,103 @@
+# Tauri reader prototype
+
+A Linux Tauri 2 frontend over version-1 normalized book JSON. The Rust adapter loads JSON and persists the last book and source-based reading state. The frontend never parses EPUB or inserts publisher HTML. All bundled text and artwork are synthetic.
+
+## Run
+
+From the repository root:
+
+```sh
+./apps/tauri/run.sh
+```
+
+This builds the standalone Cargo workspace with two compilation jobs, then opens the synthetic book on first launch. On Linux the script defaults `WEBKIT_DISABLE_DMABUF_RENDERER=1` because the default DMA-BUF path failed on this machine; an explicit environment value overrides it. Rust 1.99, GTK 3 and WebKitGTK 4.1 development packages are required. `src-tauri/Cargo.lock` pins dependencies. The component does not use a frontend package manager or runtime framework.
+
+Open a core export from the command line:
+
+```sh
+./apps/tauri/run.sh --book-json /absolute/path/book.json
+```
+
+The in-app **Open book JSON** action accepts the same format, up to 32 MiB. It validates the file before replacing the current book. The Rust command-line limit is 64 MiB. Normal startup restores the last loaded book, its source position and speed, with playback stopped. A fresh book starts at 350 WPM.
+
+For a browser-only comparison:
+
+```sh
+./apps/tauri/browser.sh
+```
+
+Open `http://127.0.0.1:18772`. This serves only the bundled web directory and binds only to loopback. Browser persistence uses its own `overnight-tauri-browser-v1` localStorage key; it does not use native storage. Browsers impose storage quotas, so use the native adapter for large books. The browser server does not read arbitrary local files.
+
+## Reading
+
+- Left and Right turn conventional pages. Select or click a passage, then press Space to play from its source piece. Space pauses; Escape returns to the last displayed passage.
+- The quiet footer’s **⋯** button exposes file and reading controls. The default reading font is IBM Plex Mono with JetBrains Mono Nerd Font and monospace fallbacks, at 20 pixels in a roughly 65-character column. Previously saved font sizes remain respected.
+- Images retain their proportions, shrink to fit the reading area, and are never enlarged. Alt text remains accessible without a duplicate caption; unavailable resources retain a visible fallback.
+- Reading settings expose chapter navigation, font size, per-book speed, optional note following and chapter feedback. Font or window changes reflow around the selected source rather than retaining a page number.
+- Image and unsupported-content items pause. Space continues; Escape shows their conventional context. Explicit ornaments skip playback. Image classification belongs to the core.
+- Note links open on demand. With note following enabled, the core's `note_id` references play `notes[].pieces`, then continue after the marker. Nested notes are not followed recursively. This prototype also handles inline `kind: note` blocks in the small local fixture.
+- Logical chapter boundaries pause, including the end of the last chapter. Save and continue records the two subjective answers; Skip and continue stores no answers. Disabling questions retains the pause. Accepting the displayed suggestion changes speed by 25 WPM. History is local and can be cleared for the active book.
+- A changed revision never silently reuses an old array index. The saved chapter start is offered for confirmation using its chapter ID, without passage matching. If that chapter is missing or ambiguous, the old saved anchor remains until the reader explicitly chooses a new passage.
+
+Source addresses use document, node, scalar offset and length plus revision. JavaScript splits strings by Unicode scalar value for source mapping; DOM selections map through source-labelled text fragments. A word spanning emphasis runs remains one playback piece. Pixel positions and page numbers are only transient layout data.
+
+## Core integration
+
+After the components are merged, run the core CLI separately:
+
+```sh
+./target/debug/reader-core export \
+  --epub /absolute/path/book.epub \
+  --output /absolute/path/tauri/.local/import/book.json \
+  --store /absolute/path/tauri/.local/import/core-store
+./apps/tauri/run.sh --book-json /absolute/path/tauri/.local/import/book.json
+```
+
+Use an ignored path under this component for private exports. `reader-core demo --output PATH --store PATH` generates a synthetic export instead. The adapter consumes the contract's required fields and the core's additive `resources`, `run.note_id`, `piece.note_id` and `notes[].blocks/pieces` fields. Resources resolve only to bounded embedded PNG/JPEG/WebP data. Arbitrary file paths, remote image URLs and publisher SVG do not load. An unavailable image has an explicit placeholder.
+
+`web/core-demo.json` is a synthetic snapshot exported by the actual sibling core CLI during this session, not a frontend importer result. `web/demo.json` is the longer local fixture generated by `python apps/tauri/make-demo.py`. Keep the core snapshot synthetic when refreshing it.
+
+This workspace member links `reader-core` from `../../../crates/reader-core`. Both frontends share its playback, recovery and persistence policy.
+
+## Verification
+
+`./apps/tauri/verify.sh` runs the Rust gates, model tests and two real native self-test launches against one isolated scratch directory. It requires an active graphical session. The second launch checks stopped resume from the persisted source anchor.
+
+```sh
+node --test apps/tauri/tests/model.test.mjs
+./apps/tauri/build.sh
+READER_SCRATCH="$PWD/apps/tauri/.local/check-$(date +%s)" \
+  ./apps/tauri/run.sh --self-test
+```
+
+The native self-test runs in the real Tauri WebKitGTK window, exercises DOM layout and controls, imports the core's synthetic fixture through Rust IPC, writes `self-test/self-test.json` under the selected scratch root and exits with success or failure. Use a fresh scratch path for each run. Tests assert the synthetic fixture's content and count, so do not point this mode at a private book. The native shell forces the bundled synthetic starting fixture in self-test mode.
+
+`tests/browser-check.mjs` drives actual Chromium mouse and keyboard events when Playwright is available. See BROWSER-NOTES.md for the exact local invocation. Chromium is supplemental evidence, not a substitute for native WebKitGTK.
+
+## Storage and security
+
+The default scratch directory is this component's ignored `.local`, including the WebKit profile/cache. Override it with `READER_SCRATCH` to isolate a run. Native JSON files are owner-only on Unix; no production library or other prototype storage is used. Saved state includes source spans, nearby passage text, per-book settings and feedback. Book contents remain local. Do not commit scratch files or include private screenshots in reports.
+
+The frontend constructs text nodes and known semantic elements. It has no publisher-script path. CSP and native navigation restrictions reject remote content. There are no shell/filesystem plugins exposed to JavaScript and no external fonts, analytics or paid services. Build output and screenshots are locally ignored.
+
+## Prototype boundaries
+
+This is a runnable comparison artifact, not a release. It lays out the whole book into CSS columns, which can consume substantial DOM memory on long books. It has not been validated against a broad EPUB corpus. The normalizer decides visibility, semantic content, chapter identity and ornament classification before rendering.
+
+Playback includes sentence/paragraph pauses and a fixed center guide. It does not yet reproduce the accepted two-second preparation pulse, 30-second speed ramp, compound timing policy or recent-vocabulary capture. Explicit source-piece selection is verified; arbitrary partial-word selections start at their containing piece. Note interruption returns to the main-text marker rather than reopening a note at an internal word on restart.
+
+The JSON adapter validates structure but does not independently verify source addresses against an EPUB. It trusts the core's decoded-source semantics. Changed editions use chapter IDs to offer the chapter start, with confirmation. Import errors keep the current book. Startup errors are reported, but automatic repair of corrupted scratch JSON is not implemented.
+
+Native persistence coalesces position changes and checkpoints active playback every two seconds. Each book has independent current, backup, and chapter records. Both native shells share per-book process locks. Different books can use the same scratch directory concurrently; WebKit profiles are isolated per process. See REPORT.md for measured results, platform-specific launch constraints and remaining untested gates. See PORTS.md for official-source porting steps; Windows, macOS, Android and iOS are not claimed to work.
+
+## Integrated core launcher
+
+`./apps/tauri/run.sh --demo` now regenerates the shared Rust core's synthetic EPUB export. `--epub PATH` imports a local EPUB through the same core CLI and identity store used by Qt. `--book-json PATH` still opens an existing export, and no arguments retain last-book behavior. See `../../scripts/README.md` for reproducible integrated checks and known schema boundaries. The native suite also checks a standalone normalized Unicode fixture for DOM selection and source return. Worker REPORT.md is historical evidence from before integration.
+
+## Omarchy colors
+
+On Linux, the native adapter reads `~/.local/state/omarchy/current/theme/colors.toml`. Background, foreground, accent and selection colors follow the Qt reader's precedence. `selection` precedes `selection_background`; selected text uses `selection_foreground`, then `bright_foreground`, then the normal foreground. The reader refreshes once per second, reopening the path to handle file replacement, theme symlink changes and initially missing directories. `READER_THEME_FILE` overrides the path for isolated tests. No desktop configuration is written.
+
+Absent or invalid colors fall back independently to light/dark defaults. The file's `mode` wins, then background brightness, then WebKit's system color preference. Other platforms use the system preference unless an override file is supplied. This implements palette updates; Qt's portal-based text-scale adapter is not yet present in Tauri.
+
+`python tests/theme.py` drives a native WebKitGTK instance through temporary-file creation, atomic replacement, symlink switching, removal and recreation. It verifies the palette updates without restarting the reader. `verify.sh` includes this check.

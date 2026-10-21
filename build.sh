@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec python3 "$(dirname "$(realpath "$0")")/prototypes/overnight/integration/dev.py" build "$@"
+exec python3 "$(dirname "$(realpath "$0")")/scripts/dev.py" build "$@"

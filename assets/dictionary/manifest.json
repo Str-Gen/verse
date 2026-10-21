@@ -1,0 +1,14 @@
+{
+  "sha256": "26afdf487390badd0056951aa8f861806999fed2885743bce67994b8b54d49bd",
+  "bytes": 416641024,
+  "compressed_bytes": 99528140,
+  "metadata": {
+    "source": "https://kaikki.org/dictionary/raw-wiktextract-data.jsonl.gz",
+    "source_dump_date": "2026-09-02",
+    "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "attribution": "Wiktionary contributors, extracted by Kaikki / Wiktextract",
+    "imported": "2026-10-20T22:15:33.766840+00:00",
+    "entries": "1492836",
+    "modifications": "English entries only; definition glosses, labels, etymologies and lemma references retained; reformatted as SQLite."
+  }
+}

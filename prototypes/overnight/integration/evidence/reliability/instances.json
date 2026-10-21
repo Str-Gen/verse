@@ -1,9 +1,0 @@
-{
-  "passed": true,
-  "checks": [
-    "Qt acquires its book with malformed legacy startup state",
-    "Tauri rejects a book already open in Qt",
-    "Different books run concurrently, including two Tauri processes sharing a scratch root",
-    "A killed Qt process releases its book for Tauri without deleting a lock file"
-  ]
-}

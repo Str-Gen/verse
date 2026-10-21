@@ -1,16 +1,53 @@
+# Private investigations, captures, benchmarks and profiles. Never force-add these.
+/docs/private/
+/.scratch/
+/.audit/
+**/evidence/
+**/.evidence/
+**/benchmark-results/
+**/profiling/
+perf.data*
+*.profraw
+*.profdata
+*.heaptrack*
+*.log
+callgrind.out.*
+flamegraph*.svg
+
+# Cargo/native/web build products and caches. Keep the workspace Cargo.lock.
+**/target/
 /build/
-/build-tests/
-/pkg/
-/pkgbuild/pkg/
-/pkgbuild/src/
-*.pkg.tar.*
-*.src.tar.*
+/dist/
+**/node_modules/
+**/__pycache__/
+*.py[cod]
 *.o
 *.moc
-moc_*.cpp
-qrc_*.cpp
 .qmake.stash
-Makefile
+.qmlls.ini
 
-# Private local books used for testing.
+# Local books, user state and expanded dictionary caches.
+**/.local/
+/scratch/
+**/scratch/
 /test-data/local/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Credentials are configured outside the repository.
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# Editor / OS files.
+.DS_Store
+Thumbs.db
+*.swp
+*~
