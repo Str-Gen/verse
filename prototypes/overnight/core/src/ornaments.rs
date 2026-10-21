@@ -1,0 +1,251 @@
+use crate::{Error, ImageEvidence, Limits, Resource, Result, archive::Archive};
+use base64::Engine;
+use image::{ImageFormat, ImageReader, RgbaImage};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Cursor,
+};
+
+/// Unknown assets remain substantive until inspected evidence establishes otherwise.
+pub(crate) fn classification<'a>(evidence: &'a [ImageEvidence], resource: &str) -> &'a str {
+    evidence
+        .iter()
+        .find(|item| item.resource == resource)
+        .map_or("substantive", |item| item.classification.as_str())
+}
+
+fn raster_extension(path: &str) -> bool {
+    path.rsplit_once('.').is_some_and(|(_, ext)| {
+        matches!(
+            ext.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "webp"
+        )
+    })
+}
+
+fn media_type(format: ImageFormat) -> Option<&'static str> {
+    match format {
+        ImageFormat::Png => Some("image/png"),
+        ImageFormat::Jpeg => Some("image/jpeg"),
+        ImageFormat::Gif => Some("image/gif"),
+        ImageFormat::WebP => Some("image/webp"),
+        _ => None,
+    }
+}
+
+fn reader<'a>(
+    bytes: &'a [u8],
+    format: ImageFormat,
+    limits: &Limits,
+) -> ImageReader<Cursor<&'a [u8]>> {
+    let mut decoder_limits = image::Limits::default();
+    let max_dimension = u32::try_from(limits.image_pixels).unwrap_or(u32::MAX);
+    decoder_limits.max_image_width = Some(max_dimension);
+    decoder_limits.max_image_height = Some(max_dimension);
+    decoder_limits.max_alloc = Some(limits.image_pixels.saturating_mul(16));
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    reader.limits(decoder_limits);
+    reader
+}
+
+fn fingerprint(pixels: &RgbaImage) -> [u8; 32] {
+    let mut smallest = [u8::MAX; 32];
+    for (horizontal, vertical) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut hash = Sha256::new();
+        hash.update(pixels.width().to_le_bytes());
+        hash.update(pixels.height().to_le_bytes());
+        for y in 0..pixels.height() {
+            for x in 0..pixels.width() {
+                let px = if horizontal {
+                    pixels.width() - 1 - x
+                } else {
+                    x
+                };
+                let py = if vertical { pixels.height() - 1 - y } else { y };
+                hash.update(pixels.get_pixel(px, py).0);
+            }
+        }
+        let candidate: [u8; 32] = hash.finalize().into();
+        smallest = smallest.min(candidate);
+    }
+    smallest
+}
+
+pub(crate) fn inspect(
+    archive: &Archive,
+    limits: &Limits,
+    occurrences: &[(String, bool)],
+) -> Result<(Vec<ImageEvidence>, Vec<Resource>)> {
+    let paths: BTreeSet<&str> = archive
+        .files
+        .keys()
+        .filter(|p| raster_extension(p))
+        .map(String::as_str)
+        .chain(occurrences.iter().map(|(p, _)| p.as_str()))
+        .collect();
+    let mut evidence = Vec::new();
+    let mut resources = Vec::new();
+    let mut groups: BTreeMap<[u8; 32], Vec<usize>> = BTreeMap::new();
+    let mut total_pixels = 0u64;
+    for path in paths {
+        let exact_occurrences = occurrences.iter().filter(|(p, _)| p == path).count();
+        let all_decorative = exact_occurrences > 0
+            && occurrences
+                .iter()
+                .filter(|(p, _)| p == path)
+                .all(|(_, decorative)| *decorative);
+        let mut item = ImageEvidence {
+            resource: path.to_owned(),
+            width: 0,
+            height: 0,
+            exact_occurrences,
+            mirrored_or_identical_assets: 0,
+            classification: "unsupported".into(),
+            reason:
+                "Missing, invalid, or unsupported raster resource; preserve a visible placeholder."
+                    .into(),
+        };
+        let Some(bytes) = archive.files.get(path) else {
+            evidence.push(item);
+            continue;
+        };
+        let Ok(format) = image::guess_format(bytes) else {
+            evidence.push(item);
+            continue;
+        };
+        let Some(media_type) = media_type(format) else {
+            evidence.push(item);
+            continue;
+        };
+        let dimensions = reader(bytes, format, limits).into_dimensions();
+        let (width, height) = match dimensions {
+            Ok(dimensions) => dimensions,
+            Err(image::ImageError::Limits(_)) => {
+                return Err(Error::Limit("image decoder dimensions"));
+            }
+            Err(_) => {
+                evidence.push(item);
+                continue;
+            }
+        };
+        if u64::from(width) * u64::from(height) > limits.image_pixels {
+            return Err(Error::Limit("image pixels"));
+        }
+        total_pixels = total_pixels
+            .checked_add(u64::from(width) * u64::from(height))
+            .ok_or(Error::Limit("total image pixels"))?;
+        if total_pixels > limits.total_image_pixels {
+            return Err(Error::Limit("total image pixels"));
+        }
+        let decoded = match reader(bytes, format, limits).decode() {
+            Ok(image) => image.into_rgba8(),
+            Err(image::ImageError::Limits(_)) => {
+                return Err(Error::Limit("image decoder allocation"));
+            }
+            Err(_) => {
+                evidence.push(item);
+                continue;
+            }
+        };
+        item.width = width;
+        item.height = height;
+        let small = (width <= 512 && height <= 128) || (width <= 128 && height <= 512);
+        // Animation evidence covers only the first frame. A conservative PNG chunk-name
+        // check can retain a static image unnecessarily, but cannot justify skipping one.
+        let possibly_animated = matches!(format, ImageFormat::Gif | ImageFormat::WebP)
+            || (format == ImageFormat::Png && bytes.windows(4).any(|chunk| chunk == b"acTL"));
+        if all_decorative && small && !possibly_animated {
+            item.classification = "ornament".into();
+            item.reason = "Every occurrence has explicit decorative semantics and empty alt text; dimensions are bounded. Repetition alone does not justify skipping.".into();
+        } else {
+            item.classification = "substantive".into();
+            item.reason = if possibly_animated {
+                "Only the first frame was inspected; animation may contain substantive content."
+            } else {
+                "Decoration is not established for every occurrence; retain the image and pause playback. Repetition and empty alt text alone are insufficient."
+            }.into();
+        }
+        groups
+            .entry(fingerprint(&decoded))
+            .or_default()
+            .push(evidence.len());
+        resources.push(Resource {
+            id: path.to_owned(),
+            media_type: media_type.into(),
+            data_url: format!(
+                "data:{media_type};base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            ),
+        });
+        evidence.push(item);
+    }
+    for indices in groups.values() {
+        for &index in indices {
+            evidence[index].mirrored_or_identical_assets = indices.len();
+        }
+    }
+    Ok((evidence, resources))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn repeated_and_mirrored_images_do_not_silently_disappear() -> Result<()> {
+        let limits = Limits::default();
+        let archive = Archive::open(Path::new("fixtures/complex.epub"), &limits)?;
+        let occurrences = vec![
+            ("EPUB/ornament.png".into(), false),
+            ("EPUB/ornament.png".into(), false),
+            ("EPUB/ornament-mirror.png".into(), false),
+        ];
+        let (evidence, resources) = inspect(&archive, &limits, &occurrences)?;
+        assert_eq!(evidence.len(), 4);
+        assert_eq!(resources.len(), 4);
+        assert_eq!(
+            classification(&evidence, "EPUB/ornament.png"),
+            "substantive"
+        );
+        assert_eq!(classification(&evidence, "unseen.png"), "substantive");
+        let original = evidence
+            .iter()
+            .find(|e| e.resource == "EPUB/ornament.png")
+            .ok_or_else(|| Error::Invalid("missing test evidence".into()))?;
+        assert_eq!(original.exact_occurrences, 2);
+        assert_eq!(original.mirrored_or_identical_assets, 2);
+        let explicitly_decorative = vec![("EPUB/ornament.png".into(), true)];
+        let (decorated, _) = inspect(&archive, &limits, &explicitly_decorative)?;
+        assert_eq!(classification(&decorated, "EPUB/ornament.png"), "ornament");
+        assert_eq!(
+            classification(&decorated, "EPUB/uncertain.png"),
+            "substantive"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_assets_and_pixel_limits_are_observable() -> Result<()> {
+        let mut limits = Limits::default();
+        let mut archive = Archive::open(Path::new("fixtures/complex.epub"), &limits)?;
+        archive
+            .files
+            .insert("bad.png".into(), b"broken image".to_vec());
+        let (evidence, resources) = inspect(&archive, &limits, &[("absent.png".into(), true)])?;
+        assert_eq!(classification(&evidence, "bad.png"), "unsupported");
+        assert_eq!(classification(&evidence, "absent.png"), "unsupported");
+        assert!(
+            !resources
+                .iter()
+                .any(|r| r.id == "bad.png" || r.id == "absent.png")
+        );
+        limits.image_pixels = 10;
+        assert!(matches!(
+            inspect(&archive, &limits, &[]),
+            Err(Error::Limit(_))
+        ));
+        Ok(())
+    }
+}
