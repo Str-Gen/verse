@@ -339,10 +339,7 @@ fn malformed_publications_and_resource_limits_fail_explicitly() -> TestResult {
         let result = import_epub(
             &fixture("complex.epub"),
             "bounded",
-            &ImportOptions {
-                limits,
-                ..ImportOptions::default()
-            },
+            &ImportOptions { limits },
         );
         assert!(
             matches!(
@@ -357,21 +354,30 @@ fn malformed_publications_and_resource_limits_fail_explicitly() -> TestResult {
 
 #[test]
 fn display_splitting_keeps_lexical_identity_and_changed_editions_only_propose() -> TestResult {
-    let original = load("complex.epub")?;
-    let compound = original
+    let split = load("complex.epub")?;
+    let first = split
         .pieces
         .iter()
-        .find(|p| p.text == "state-of-the-art")
-        .ok_or("whole compound absent")?;
-    let saved = reader_core::location::SavedLocation::capture(&original, &compound.id)?;
-    let mut options = ImportOptions::default();
-    options.split_compounds.insert("state-of-the-art".into());
-    let split = import_epub(&fixture("complex.epub"), &original.book_id, &options)?;
+        .position(|p| p.text == "state-")
+        .ok_or("compound absent")?;
+    let word_id = &split.pieces[first].word_id;
     let displayed: Vec<_> = split
         .pieces
         .iter()
-        .filter(|p| p.word_id == compound.word_id)
+        .filter(|p| &p.word_id == word_id)
         .collect();
+    let mut original = split.clone();
+    let mut whole = displayed[0].clone();
+    whole.text = displayed.iter().map(|p| p.text.as_str()).collect();
+    whole.sources.truncate(1);
+    whole.sources[0].length = whole.text.chars().count();
+    whole.paragraph_end = displayed.last().ok_or("no parts")?.paragraph_end;
+    original
+        .pieces
+        .splice(first..first + displayed.len(), [whole.clone()]);
+    let compound = &whole;
+    let saved = reader_core::location::SavedLocation::capture(&original, &compound.id)?;
+    let current_saved = reader_core::location::SavedLocation::capture(&split, &displayed[0].id)?;
     assert_eq!(
         displayed
             .iter()
@@ -393,7 +399,27 @@ fn display_splitting_keeps_lexical_identity_and_changed_editions_only_propose() 
             piece_id: displayed[0].id.clone()
         }
     );
-    verify_sources(&fixture("complex.epub"), &split, &options.limits)?;
+    let cached = reader_core::session::book_from_value(serde_json::to_value(&original)?)?;
+    assert_eq!(
+        serde_json::to_value(&cached)?,
+        serde_json::to_value(&split)?
+    );
+    let resume = reader_core::session::restore(
+        &cached,
+        Some(&serde_json::json!({"revision": original.revision, "location": saved})),
+    )?;
+    assert_eq!(resume.kind, "exact");
+    assert_eq!(resume.at, first);
+    for part in &displayed {
+        let location = reader_core::location::SavedLocation::capture(&split, &part.id)?;
+        assert_eq!(
+            recover_location(&cached, &location),
+            Recovery::Exact {
+                piece_id: part.id.clone()
+            }
+        );
+    }
+    verify_sources(&fixture("complex.epub"), &split, &Limits::default())?;
     let revised = import_epub(
         &fixture("revised.epub"),
         &original.book_id,
@@ -401,7 +427,7 @@ fn display_splitting_keeps_lexical_identity_and_changed_editions_only_propose() 
     )?;
     assert_ne!(revised.revision, original.revision);
     assert!(matches!(
-        recover_location(&revised, &saved),
+        recover_location(&revised, &current_saved),
         Recovery::ProposePassage { .. }
     ));
     assert_eq!(saved.revision, original.revision);
@@ -707,7 +733,6 @@ fn forged_zip_declared_size_cannot_bypass_actual_expansion_limit() -> TestResult
             expanded_bytes: 30_000,
             ..Limits::default()
         },
-        ..ImportOptions::default()
     };
     assert!(matches!(
         import_epub(&fixture.path, "forged", &options),
@@ -729,5 +754,69 @@ fn astral_symbols_stay_inside_whole_whitespace_delimited_passages() -> TestResul
         .collect();
     assert_eq!(words, ["A😀B", "𝄞tone", "é."]);
     verify_sources(&fixture.path, &book, &ImportOptions::default().limits)?;
+    Ok(())
+}
+
+#[test]
+fn hyphenated_compounds_split_automatically_with_connected_beats() -> TestResult {
+    let page = synthetic_xhtml(
+        r#"<p id="one">state-<em>of</em>-the-art, well‐known non‑fiction COVID-19 2026-10-21 10-20 -5 word--word https://example.com/a-b a-b@example.com</p><p>well-known.</p>"#,
+        "",
+    );
+    let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", page.as_bytes())])?;
+    let book = fixture.import()?;
+    let first = &book.documents[0].blocks[0].id;
+    let pieces: Vec<_> = book
+        .pieces
+        .iter()
+        .filter(|p| &p.block_id == first)
+        .collect();
+    assert_eq!(
+        pieces.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(),
+        [
+            "state-",
+            "of-",
+            "the-",
+            "art,",
+            "well‐",
+            "known",
+            "non‑",
+            "fiction",
+            "COVID-",
+            "19",
+            "2026-10-21",
+            "10-20",
+            "-5",
+            "word--word",
+            "https://example.com/a-b",
+            "a-b@example.com"
+        ]
+    );
+    assert!(pieces[..4].iter().all(|p| p.word_id == pieces[0].word_id));
+    assert!(pieces[..3].iter().all(|p| !p.paragraph_end));
+    assert!(block_text(&book)[0].starts_with("state-of-the-art,"));
+    verify_sources(&fixture.path, &book, &Limits::default())?;
+    let plan = reader_core::session::plan(&book.pieces, &book.chapters, false);
+    for (at, piece) in book.pieces.iter().enumerate() {
+        let compiled = &plan[at];
+        let action = reader_core::session::playback(&book, at, false).ok_or("no action")?;
+        assert_eq!(compiled.multiplier, action.multiplier);
+        assert_eq!(compiled.extra_ms, action.extra_ms);
+        if matches!(piece.text.as_str(), "state-" | "of-" | "the-" | "well-") {
+            assert_eq!(reader_core::session::delay_ms(&book, at, 600), 80);
+        }
+        if piece.text == "art," {
+            assert_eq!(reader_core::session::delay_ms(&book, at, 600), 125);
+        }
+        if piece.text == "known." {
+            assert_eq!(reader_core::session::delay_ms(&book, at, 600), 290);
+        }
+    }
+    let cached = reader_core::session::book_from_value(serde_json::to_value(&book)?)?;
+    assert_eq!(
+        serde_json::to_value(&cached)?,
+        serde_json::to_value(&book)?,
+        "loading already split books must be idempotent"
+    );
     Ok(())
 }

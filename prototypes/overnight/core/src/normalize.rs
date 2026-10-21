@@ -195,7 +195,7 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
             builder.flush();
         }
         let blocks = std::mem::take(&mut builder.blocks);
-        let mut pieces = pieces_for(&blocks, options);
+        let mut pieces = pieces_for(&blocks);
         for (id, (range, empty)) in &builder.anchors {
             if let Some(piece) = pieces.iter().find(|p| {
                 p.sources.iter().any(|source| {
@@ -230,7 +230,7 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
             builder.walk(note)?;
             builder.flush();
             let blocks = std::mem::take(&mut builder.blocks);
-            let pieces = pieces_for(&blocks, options);
+            let pieces = pieces_for(&blocks);
             book.notes.push(Note {
                 id: format!("{path}#{id}"),
                 blocks,
@@ -320,6 +320,7 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
                 .into(),
         );
     }
+    crate::compound::split_book(&mut book)?;
     tracing::info!(
         code = "import_completed",
         documents = book.documents.len(),
@@ -612,11 +613,11 @@ impl Builder<'_> {
     }
 }
 
-fn pieces_for(blocks: &[Block], options: &ImportOptions) -> Vec<Piece> {
+fn pieces_for(blocks: &[Block]) -> Vec<Piece> {
     let mut result = Vec::new();
     for block in blocks {
         if !block.runs.iter().any(|r| r.note_id.is_some()) {
-            result.extend(text_pieces(std::slice::from_ref(block), options));
+            result.extend(text_pieces(std::slice::from_ref(block)));
             continue;
         }
         let mut groups: Vec<Vec<Run>> = Vec::new();
@@ -650,7 +651,7 @@ fn pieces_for(blocks: &[Block], options: &ImportOptions) -> Vec<Piece> {
                     note_id: Some(note_id),
                 });
             } else {
-                let mut pieces = text_pieces(&[segment], options);
+                let mut pieces = text_pieces(&[segment]);
                 for p in &mut pieces {
                     p.block_id = block.id.clone();
                     p.paragraph_end = false;
@@ -665,7 +666,7 @@ fn pieces_for(blocks: &[Block], options: &ImportOptions) -> Vec<Piece> {
     result
 }
 
-fn text_pieces(blocks: &[Block], options: &ImportOptions) -> Vec<Piece> {
+fn text_pieces(blocks: &[Block]) -> Vec<Piece> {
     let mut pieces = Vec::new();
     for block in blocks {
         if matches!(
@@ -716,7 +717,7 @@ fn text_pieces(blocks: &[Block], options: &ImportOptions) -> Vec<Piece> {
             ranges.push((begin, text.len()));
         }
         for i in 0..ranges.len() {
-            let (lexical_start, lexical_end) = ranges[i];
+            let (lexical_start, _) = ranges[i];
             let start = if i == 0 { 0 } else { lexical_start };
             let end = if i + 1 < ranges.len() {
                 ranges[i + 1].0
@@ -731,44 +732,32 @@ fn text_pieces(blocks: &[Block], options: &ImportOptions) -> Vec<Piece> {
             let byte_start = start + slice.len() - slice.trim_start().len();
             let scalar_start = byte_starts.partition_point(|b| *b < byte_start);
             let scalar_end = scalar_start + trimmed.chars().count();
-            let lexical = &text[lexical_start..lexical_end];
             let word_id = format!("{}:w{i}", block.id);
-            let mut cuts = vec![scalar_start];
-            if options.split_compounds.contains(lexical) {
-                cuts.extend(
-                    (scalar_start..scalar_end)
-                        .filter(|j| matches!(chars[*j], '-' | '\u{2010}' | '\u{2011}'))
-                        .map(|j| j + 1),
-                );
-            }
-            cuts.push(scalar_end);
-            cuts.dedup();
-            for (part, range) in cuts.windows(2).enumerate() {
-                let text: String = chars[range[0]..range[1]].iter().collect();
-                let first = source_ranges.partition_point(|(r, _)| r.end <= range[0]);
-                let sources = source_ranges[first..]
-                    .iter()
-                    .take_while(|(r, _)| r.start < range[1])
-                    .map(|(r, s)| {
-                        let mut span = (*s).clone();
-                        let start = r.start.max(range[0]);
-                        let end = r.end.min(range[1]);
-                        span.offset += start - r.start;
-                        span.length = end - start;
-                        span
-                    })
-                    .collect();
-                pieces.push(Piece {
-                    id: format!("{word_id}:{part}"),
-                    text,
-                    word_id: word_id.clone(),
-                    sources,
-                    block_id: block.id.clone(),
-                    paragraph_end: false,
-                    kind: "word".into(),
-                    note_id: None,
-                });
-            }
+            let range = [scalar_start, scalar_end];
+            let text: String = chars[scalar_start..scalar_end].iter().collect();
+            let first = source_ranges.partition_point(|(r, _)| r.end <= range[0]);
+            let sources = source_ranges[first..]
+                .iter()
+                .take_while(|(r, _)| r.start < range[1])
+                .map(|(r, s)| {
+                    let mut span = (*s).clone();
+                    let start = r.start.max(range[0]);
+                    let end = r.end.min(range[1]);
+                    span.offset += start - r.start;
+                    span.length = end - start;
+                    span
+                })
+                .collect();
+            pieces.push(Piece {
+                id: format!("{word_id}:0"),
+                text,
+                word_id: word_id.clone(),
+                sources,
+                block_id: block.id.clone(),
+                paragraph_end: false,
+                kind: "word".into(),
+                note_id: None,
+            });
         }
         if let Some(last) = pieces.last_mut().filter(|p| p.block_id == block.id) {
             last.paragraph_end = true;

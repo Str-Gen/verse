@@ -2,6 +2,9 @@
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QQuickWindow>
+#include <QQuickItem>
+#include <QMouseEvent>
+#include <QKeyEvent>
 #include <QQuickTextDocument>
 #include <QTextDocument>
 #include <QTextBlock>
@@ -75,4 +78,25 @@ void Support::fitImages(QObject *editor, double width, double height) {
         cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
         cursor.setCharFormat(update.second);
     }
+}
+
+bool Support::click(QObject *object, double x, double y) {
+    auto *item = qobject_cast<QQuickItem *>(object);
+    if (!item || !item->window()) return false;
+    auto *window = item->window();
+    const auto local = item->mapToScene(QPointF(x, y));
+    const QPointF global = window->mapToGlobal(local.toPoint());
+    QMouseEvent press(QEvent::MouseButtonPress, local, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease, local, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(window, &press);
+    QCoreApplication::sendEvent(window, &release);
+    return true;
+}
+void Support::pressSpace() {
+    auto *window = QGuiApplication::focusWindow();
+    if (!window) return;
+    QKeyEvent press(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier, " ");
+    QKeyEvent release(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier, " ");
+    QCoreApplication::sendEvent(window, &press);
+    QCoreApplication::sendEvent(window, &release);
 }

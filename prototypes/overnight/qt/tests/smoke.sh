@@ -34,12 +34,20 @@ for piece in book['pieces']:
         source['node'] = 'edited/' + source['node']
 (state / 'changed.json').write_text(json.dumps(book))
 (state / 'before.json').write_bytes((state / 'resume.json').read_bytes())
+span = {"document":"d", "node":"n", "offset":0, "length":17}
+compound = {"schema_version":1,"book_id":"compound-cache","revision":"v1","title":"Compound",
+    "documents":[{"id":"d","blocks":[{"id":"b","kind":"paragraph","runs":[{"text":"state-of-the-art.","sources":[span]}]}]}],
+    "pieces":[{"id":"p","text":"state-of-the-art.","kind":"word","word_id":"w","block_id":"b","paragraph_end":True,"sources":[span]}],
+    "chapters":[],"notes":[]}
+(state / 'compound.json').write_text(json.dumps(compound))
 PYFIXTURE
 READER_SMOKE=recover-pending "$reader_binary" --book-json "$state/changed.json" 2>&1 | tee evidence/runtime/recovery-pending.log
 cmp "$state/before.json" "$state/resume.json"
 READER_SMOKE=recover-confirm "$reader_binary" --book-json "$state/changed.json" 2>&1 | tee evidence/runtime/recovery-confirm.log
 READER_SMOKE=resume "$reader_binary" 2>&1 | tee evidence/runtime/recovered-resume.log
-if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEngine failed' evidence/runtime/{smoke,resume,recovery-pending,recovery-confirm,recovered-resume}.log; then exit 1; fi
+READER_STATE_DIR="$state/selection" READER_SMOKE=selection READER_SCREENSHOT="$PWD/evidence/selection.png" "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee evidence/runtime/selection.log
+READER_STATE_DIR="$state/compound" READER_SMOKE=compound "$reader_binary" --book-json "$state/compound.json" 2>&1 | tee evidence/runtime/compound.log
+if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEngine failed' evidence/runtime/{smoke,resume,recovery-pending,recovery-confirm,recovered-resume,selection,compound}.log; then exit 1; fi
 
 rg -q "SMOKE COMPLETE" evidence/runtime/smoke.log
 rg -q "RESUME COMPLETE" evidence/runtime/resume.log
@@ -47,3 +55,6 @@ rg -q "RECOVERY_PENDING COMPLETE" evidence/runtime/recovery-pending.log
 rg -q "RECOVERY_CONFIRM COMPLETE" evidence/runtime/recovery-confirm.log
 rg -q "RESUME COMPLETE" evidence/runtime/recovered-resume.log
 rg -q "READER_PLATFORM=$QT_QPA_PLATFORM" evidence/runtime/smoke.log
+
+rg -q "SELECTION COMPLETE" evidence/runtime/selection.log
+rg -q "COMPOUND COMPLETE" evidence/runtime/compound.log

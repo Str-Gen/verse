@@ -29,7 +29,7 @@ After unsupported vector content.
 
 Only `HTML_SECRET` is excluded by the HTML `hidden` attribute. The other markers are hidden only by publisher CSS and remain readable under Verse's own typography policy. Inline `em` and `strong` semantics remain intact.
 
-The source spelling of `state-of-the-art` and `Donaudampfschifffahrt` is preserved independently of user-approved display-piece splitting. Tests should distinguish lexical word identity from display-piece identity.
+The source spelling of `state-of-the-art` and `Donaudampfschifffahrt` is preserved while hyphenated words automatically split into playback beats. Tests should distinguish lexical word identity from display-piece identity.
 
 The manual note target is `EPUB/notes.xhtml#n1`, containing `The manual note text.` and a return link. It is in a non-linear spine resource and should not silently become ordinary main-text playback. The second noteref points to missing `notes.xhtml#missing` and requires an explicit unresolved state. `Vector diagram` is an inline SVG title; the SVG requires an unsupported-content marker or supported equivalent, never silent disappearance.
 

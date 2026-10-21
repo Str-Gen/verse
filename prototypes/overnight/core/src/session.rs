@@ -42,7 +42,9 @@ pub fn book_from_value(mut value: Value) -> Result<Book, serde_json::Error> {
             }
         }
     }
-    serde_json::from_value(value)
+    let mut book = serde_json::from_value(value)?;
+    crate::compound::split_book(&mut book).map_err(serde::de::Error::custom)?;
+    Ok(book)
 }
 
 pub const MIN_SPEED: u32 = 60;
@@ -89,11 +91,23 @@ pub fn playback(book: &Book, at: usize, follow_notes: bool) -> Option<Playback> 
                 .any(|p| p.id == c.start_piece)
         })
     });
-    Some(action(piece, next, chapter_boundary))
+    Some(action(
+        piece,
+        next,
+        chapter_boundary,
+        crate::compound::continues(piece, book.pieces.get(at + 1)),
+    ))
 }
-fn action(piece: &Piece, next: Option<usize>, chapter_boundary: bool) -> Playback {
+fn action(
+    piece: &Piece,
+    next: Option<usize>,
+    chapter_boundary: bool,
+    continues_compound: bool,
+) -> Playback {
     let ending = piece.text.trim_end_matches(['”', '\'', '"', '’', ')']);
-    let multiplier = if ending.ends_with(['.', '!', '?']) {
+    let multiplier = if continues_compound {
+        0.8
+    } else if ending.ends_with(['.', '!', '?']) {
         1.7
     } else if ending.ends_with([',', ';', ':']) {
         1.25
@@ -120,7 +134,12 @@ pub fn plan(pieces: &[Piece], chapters: &[crate::Chapter], follow_notes: bool) -
     let mut boundary = false;
     let mut result = Vec::with_capacity(pieces.len());
     for (at, piece) in pieces.iter().enumerate().rev() {
-        result.push(action(piece, next, next.is_some() && boundary));
+        result.push(action(
+            piece,
+            next,
+            next.is_some() && boundary,
+            crate::compound::continues(piece, pieces.get(at + 1)),
+        ));
         if !skip(piece, follow_notes) {
             next = Some(at);
             boundary = false;

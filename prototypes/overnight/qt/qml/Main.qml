@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import QtQuick.Shapes
 import Overnight.Reader
 
 ApplicationWindow {
@@ -68,6 +69,12 @@ ApplicationWindow {
         page = next
         reader.select(pages[next].position)
         editor.select(reader.position, reader.end_position)
+    }
+    function selectStart(position) {
+        if (!ready || playback) return
+        reader.select(position)
+        editor.select(reader.position, reader.end_position)
+        editor.forceActiveFocus()
     }
     function begin() {
         if (!playback) {
@@ -206,7 +213,17 @@ ApplicationWindow {
                         selectedTextColor: theme.selectionForeground
                         renderType: theme.textScale % 1 === 0 ? Text.NativeRendering : Text.QtRendering
                         onContentHeightChanged: reflow.restart()
-                        Accessible.name: "Book text. Select a passage, then press Space to play."
+                        TapHandler {
+                            acceptedButtons: Qt.LeftButton
+                            gesturePolicy: TapHandler.DragThreshold
+                            onTapped: (eventPoint, button) => {
+                                const point = eventPoint.position
+                                if (editor.linkAt(point.x, point.y) !== "") return
+                                const position = editor.positionAt(point.x, point.y)
+                                Qt.callLater(() => window.selectStart(position))
+                            }
+                        }
+                        Accessible.name: "Book text. Click a word to highlight the starting point, then press Space to play."
                     }
                 }
             }
@@ -215,7 +232,6 @@ ApplicationWindow {
                 anchors.centerIn: parent
                 width: parent.width
                 spacing: 18
-                Rectangle { width: 2; height: 22; color: theme.accent; anchors.horizontalCenter: parent.horizontalCenter }
                 Text {
                     text: reader.word
                     textFormat: Text.PlainText
@@ -228,7 +244,30 @@ ApplicationWindow {
                     Accessible.role: Accessible.StaticText
                     Accessible.name: text
                 }
-                Rectangle { width: 2; height: 22; color: theme.accent; anchors.horizontalCenter: parent.horizontalCenter }
+                Shape {
+                    objectName: "playbackShelf"
+                    width: 42 * theme.textScale
+                    height: 10 * theme.textScale
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    ShapePath {
+                        strokeColor: theme.accent
+                        strokeWidth: 3.5 * theme.textScale
+                        fillColor: "transparent"
+                        capStyle: ShapePath.RoundCap
+                        joinStyle: ShapePath.RoundJoin
+                        startX: 2 * theme.textScale
+                        startY: 2 * theme.textScale
+                        PathQuad {
+                            x: 8 * theme.textScale; y: 8 * theme.textScale
+                            controlX: 2 * theme.textScale; controlY: 8 * theme.textScale
+                        }
+                        PathLine { x: 34 * theme.textScale; y: 8 * theme.textScale }
+                        PathQuad {
+                            x: 40 * theme.textScale; y: 2 * theme.textScale
+                            controlX: 40 * theme.textScale; controlY: 8 * theme.textScale
+                        }
+                    }
+                }
             }
         }
         Button {

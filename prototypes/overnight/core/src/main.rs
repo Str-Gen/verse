@@ -28,7 +28,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let command = args.next().unwrap_or_else(|| "help".into());
     if command == "help" || command == "--help" {
         println!(
-            "reader-core export --epub PATH --output PATH [--store PATH] [--split COMPOUND]\nreader-core demo --output PATH [--store PATH]\nreader-core check --epub PATH [--store PATH]\nreader-core rbook --epub PATH\nreader-core save --epub PATH --piece ID [--store PATH]\nreader-core restore --epub PATH [--store PATH]\nDefault store: component-local scratch/store. check prints counts only."
+            "reader-core export --epub PATH --output PATH [--store PATH]\nreader-core demo --output PATH [--store PATH]\nreader-core check --epub PATH [--store PATH]\nreader-core rbook --epub PATH\nreader-core save --epub PATH --piece ID [--store PATH]\nreader-core restore --epub PATH [--store PATH]\nDefault store: component-local scratch/store. check prints counts only."
         );
         return Ok(());
     }
@@ -36,7 +36,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut output = None;
     let mut piece = None;
     let mut store_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scratch/store");
-    let mut options = ImportOptions::default();
+    let options = ImportOptions::default();
     while let Some(flag) = args.next() {
         let value = args.next().ok_or("flag requires a value")?;
         match flag.as_str() {
@@ -44,9 +44,6 @@ fn run() -> Result<(), Box<dyn Error>> {
             "--output" => output = Some(PathBuf::from(value)),
             "--store" => store_path = PathBuf::from(value),
             "--piece" => piece = Some(value),
-            "--split" => {
-                options.split_compounds.insert(value);
-            }
             _ => return Err("unknown flag".into()),
         }
     }

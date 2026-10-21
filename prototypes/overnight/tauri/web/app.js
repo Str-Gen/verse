@@ -237,7 +237,7 @@ async function loadBook(value) {
   const prefsForBook = saved.books[validated.book_id];
   const prepared = native ? await native.invoke('prepare_session', { book: validated, saved: prefsForBook ?? null }) : null;
   policy = prepared;
-  notePlayback = null; book = validated; mode = 'reading'; $('playback').hidden = true; guarded = false;
+  notePlayback = null; book = prepared ? validateBook(prepared.book) : validated; mode = 'reading'; $('playback').hidden = true; guarded = false;
   const prefs = preferences(), location = prepared?.resume ?? restore(book, prefs.revision ? prefs : null);
   $('speed').value = Number.isFinite(prefs.speed) ? prefs.speed : 350;
   $('font-size').value = Number.isFinite(prefs.fontSize) ? prefs.fontSize : 20;

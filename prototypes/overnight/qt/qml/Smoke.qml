@@ -20,6 +20,53 @@ QtObject {
     function run() {
         let reader = readerObject
         let editor = textEditor
+        if (smokeMode === "compound") {
+            check(reader.plain_text === "state-of-the-art.", "cached compound keeps its conventional text")
+            reader.change_speed(600)
+            editor.cursorPosition = 0
+            host.begin()
+            const beats = ["state-", "of-", "the-", "art."]
+            const delays = [80, 80, 80, 290]
+            for (let i = 0; i < beats.length; i++) {
+                check(reader.word === beats[i], "compound beat " + beats[i])
+                check(reader.delay_ms === delays[i], "compound cadence " + delays[i] + " ms")
+                if (i + 1 < beats.length) reader.tick()
+            }
+            reader.pause()
+            host.returnToText()
+            check(editor.selectedText === "art." && reader.position === 13, "return highlights the exact last compound beat")
+            console.log("COMPOUND COMPLETE")
+            support.finish(0)
+            return
+        }
+        if (smokeMode === "selection") {
+            if (phase === 0) {
+                anchor = reader.plain_text.indexOf("crossed")
+                check(anchor >= 0, "click target exists")
+                let rect = editor.positionToRectangle(anchor + 2)
+                check(support.click(editor, rect.x + 1, rect.y + rect.height / 2), "native pointer click delivered")
+                phase = 1
+                later.start()
+            } else if (phase === 1) {
+                check(editor.selectedText === "crossed", "single click visibly highlights the whole word")
+                check(reader.word === "crossed" && reader.position === anchor, "highlight matches playback starting point")
+                host.contentItem.forceActiveFocus()
+                check(editor.persistentSelection && editor.selectedText === "crossed", "highlight remains when focus moves away")
+                if (screenshotPath !== "") check(support.capture(screenshotPath), "clicked-word screenshot saved")
+                support.pressSpace()
+                check(host.playback && reader.playing && reader.word === "crossed", "Space starts from the visibly selected word")
+                reader.pause()
+                phase = 2
+                later.start()
+            } else {
+                if (screenshotPath !== "") check(support.capture(screenshotPath.replace(".png", "-playback.png")), "shelf screenshot saved")
+                host.returnToText()
+                check(editor.selectedText === "crossed", "return restores visible starting word")
+                console.log("SELECTION COMPLETE")
+                support.finish(0)
+            }
+            return
+        }
         if (smokeMode === "independent") {
             let text = support.inspectDocument(editor).plainText
             check(text === reader.plain_text, "independent export agrees with Qt native layout")

@@ -215,7 +215,7 @@ fn prepare_session(
             )
         })
         .collect();
-    let result = serde_json::json!({"resume": resume, "normal": normal, "notes": notes, "note_plans": note_plans});
+    let result = serde_json::json!({"book": &parsed, "resume": resume, "normal": normal, "notes": notes, "note_plans": note_plans});
     *store
         .book
         .lock()

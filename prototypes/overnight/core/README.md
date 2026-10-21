@@ -16,7 +16,7 @@ From this directory:
 ./run.sh export --epub /path/to/book.epub --output scratch/book.json
 ./run.sh check --epub fixtures/complex.epub
 ./run.sh rbook --epub fixtures/legacy.epub
-./run.sh export --epub fixtures/complex.epub --output scratch/split.json --split state-of-the-art
+./run.sh export --epub fixtures/complex.epub --output scratch/split.json
 ./run.sh save --epub fixtures/complex.epub --piece b1:w1:0
 ./run.sh restore --epub fixtures/complex.epub
 ```
@@ -29,7 +29,7 @@ The crate exposes `import_epub(path, local_id, options) -> Result<Book>`, `verif
 
 `Book` retains document blocks and styled runs for conventional reading, plus source-linked pieces for playback. A word can cross several inline text nodes. Runs preserve decoded whitespace; reader rendering uses normal whitespace collapsing. Unicode word segmentation happens after joining inline runs. Adjacent lexical segments joined by hyphens/apostrophes form one lexical unit. Punctuation and non-word symbols remain attached to their surrounding display passage. This is Unicode segmentation with a compound policy, not morphological analysis.
 
-Only compounds explicitly present in `ImportOptions.split_compounds` split at their source hyphens. The resulting display pieces share one `word_id`, retain the source spelling and cover disjoint scalar ranges. Unapproved compounds remain whole. Arbitrary non-hyphen morphological splitting is not implemented.
+Hyphenated compounds automatically split into playback beats, for example `state-`, `of-`, `the-`, `art`. ASCII hyphens and Unicode hyphen/nonbreaking-hyphen characters split between letters or digits in a token containing letters. Dates, numeric ranges, URLs, email addresses, leading/trailing hyphens and doubled dashes are not split. Hyphens remain attached to the preceding beat. The beats share one `word_id`, preserve exact source spans and leave the conventional reading text unchanged. Internal beats use 80% of the normal word duration; the final beat retains normal punctuation and paragraph pauses. Existing cached books receive the same idempotent conversion on load, with saved source locations preserved. The former per-compound `--split` option is no longer needed.
 
 Source spans address archive document, XML child-node path, scalar offset and scalar length. Paths count all XML child nodes from the document root. Offsets count decoded Unicode scalar values, not UTF-8 bytes, UTF-16 code units or grapheme clusters. Use the book revision with each address. `playback::piece_at_source` maps a selected scalar to its unique main/note piece. `verify_sources` independently reparses XML; it does not compare the export with itself.
 

@@ -4,6 +4,7 @@
 //! Import failures return without modifying a caller's current book. Output is reader data,
 //! never executable publisher HTML. See the component README for the CSS support boundary.
 mod archive;
+mod compound;
 pub mod location;
 mod normalize;
 mod ornaments;
@@ -138,8 +139,6 @@ pub struct Book {
 #[derive(Clone, Debug, Default)]
 pub struct ImportOptions {
     pub limits: Limits,
-    /// Only explicitly approved compounds are split, at hyphens, into display pieces.
-    pub split_compounds: std::collections::BTreeSet<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
