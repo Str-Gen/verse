@@ -17,6 +17,10 @@ use std::{
 
 pub const WINDOW_PIECES: usize = 512;
 const MAX_RECORD: u64 = 64 * 1024 * 1024;
+const MAX_PIECE_BYTES: usize = 16 * 1024;
+const MAX_CONTEXT_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_NOTE_BYTES: u64 = 1024 * 1024;
+const MAX_METADATA_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct BookWindow {
@@ -81,6 +85,9 @@ impl DiskBook {
             .deserialize(&mut decoder)
             .map_err(invalid)?;
         decoder.end().map_err(invalid)?;
+        if serde_json::to_vec(&metadata).map_err(invalid)?.len() > MAX_METADATA_BYTES {
+            return Err(Error::Limit("book metadata bytes"));
+        }
         sink.pieces.flush()?;
         sink.index.flush()?;
         sink.images.flush()?;
@@ -165,7 +172,7 @@ impl DiskBook {
         let offset = u64::from_le_bytes(a);
         a.copy_from_slice(&bytes[8..]);
         let length = u64::from_le_bytes(a);
-        if length > MAX_RECORD {
+        if length > MAX_PIECE_BYTES as u64 {
             return Err(Error::Limit("disk piece record"));
         }
         let mut data = File::open(self.root.join("pieces"))?;
@@ -287,8 +294,37 @@ impl DiskBook {
         })
     }
     pub fn capture(&self, at: usize, preferences: &Value) -> Result<Value> {
-        let window = self.load_window(at)?;
-        session::capture(&window.book, at - window.start, preferences).map_err(invalid)
+        if at >= self.total {
+            return Err(invalid("piece index outside book"));
+        }
+        let start = at.saturating_sub(8);
+        let end = at.saturating_add(16).min(self.total);
+        let mut book = self.metadata.clone();
+        for index in start..end {
+            book.pieces.push(self.piece(index)?);
+        }
+        book.chapters.clear();
+        for (index, chapter) in self.metadata.chapters.iter().enumerate() {
+            let chapter_start = self.chapter_starts[index];
+            let chapter_end = self
+                .chapter_starts
+                .get(index + 1)
+                .copied()
+                .unwrap_or(self.total);
+            if chapter_start < end && chapter_end > start {
+                let mut chapter = chapter.clone();
+                if chapter_start < start
+                    && let Some(first) = book.pieces.first()
+                {
+                    chapter.start_piece = first.id.clone();
+                }
+                if chapter_end >= end {
+                    chapter.end_piece_exclusive = None;
+                }
+                book.chapters.push(chapter);
+            }
+        }
+        session::capture(&book, at - start, preferences).map_err(invalid)
     }
     pub fn load_window(&self, at: usize) -> Result<BookWindow> {
         if self.total > 0 && at >= self.total {
@@ -302,10 +338,14 @@ impl DiskBook {
         }
         let ids: BTreeSet<_> = book.pieces.iter().map(|p| p.block_id.clone()).collect();
         let mut documents: BTreeMap<String, Vec<Block>> = BTreeMap::new();
+        let mut context_bytes = 0u64;
         for id in ids {
             let path = self.root.join("blocks").join(key(&id));
             if !path.exists() {
                 continue;
+            }
+            if fs::metadata(&path)?.len() > MAX_CONTEXT_BYTES {
+                return Err(Error::Limit("block styling metadata bytes"));
             }
             let mut block: Block = self.read(&path)?;
             let original = std::mem::take(&mut block.runs);
@@ -327,7 +367,12 @@ impl DiskBook {
                 for i in first.saturating_sub(1)
                     ..=last.saturating_add(1).min(original.len().saturating_sub(1))
                 {
-                    block.runs.push(self.named("runs", &format!("{id}:{i}"))?);
+                    let run_path = self.root.join("runs").join(key(&format!("{id}:{i}")));
+                    context_bytes = context_bytes.saturating_add(fs::metadata(&run_path)?.len());
+                    if context_bytes > MAX_CONTEXT_BYTES {
+                        return Err(Error::Limit("visible context bytes"));
+                    }
+                    block.runs.push(self.read(&run_path)?);
                 }
             }
             let document = pieces
@@ -378,9 +423,17 @@ impl DiskBook {
             .iter()
             .filter_map(|p| p.note_id.as_deref())
             .collect();
+        let mut note_bytes = 0u64;
         for id in notes {
             let path = self.root.join("notes").join(key(id));
-            if path.exists() {
+            if !path.exists() {
+                continue;
+            }
+            let size = fs::metadata(&path)?.len();
+            if size > MAX_NOTE_BYTES.saturating_sub(note_bytes) {
+                book.notes.push(oversized_note(id));
+            } else {
+                note_bytes += size;
                 book.notes.push(self.read(&path)?);
             }
         }
@@ -440,6 +493,33 @@ impl Drop for DiskBook {
     }
 }
 
+fn oversized_note(id: &str) -> Note {
+    let block_id = format!("{id}:oversized");
+    let text = "This note exceeds the reader’s 1 MiB note window limit.".to_owned();
+    Note {
+        id: id.to_owned(),
+        blocks: vec![Block {
+            id: block_id.clone(),
+            kind: "unsupported".into(),
+            runs: Vec::new(),
+            level: None,
+            alt: Some(text.clone()),
+            resource: None,
+            note_id: None,
+        }],
+        pieces: vec![Piece {
+            id: format!("{id}:oversized:piece"),
+            text,
+            word_id: String::new(),
+            sources: Vec::new(),
+            block_id,
+            paragraph_end: true,
+            kind: "unsupported".into(),
+            note_id: None,
+        }],
+    }
+}
+
 /// Keep decoded image memory bounded independently of text windows.
 pub(crate) fn prepare_resource(mut resource: Resource) -> Result<Resource> {
     use base64::Engine;
@@ -454,7 +534,7 @@ pub(crate) fn prepare_resource(mut resource: Resource) -> Result<Resource> {
     if u64::from(width) * u64::from(height) > 40_000_000 {
         return Err(Error::Limit("image pixels"));
     }
-    if width <= 1600 && height <= 1600 {
+    if width <= 1600 && height <= 1600 && bytes.len() <= 16 * 1024 * 1024 {
         return Ok(resource);
     }
     let decoded = image::load_from_memory(&bytes).map_err(invalid)?;
@@ -508,6 +588,9 @@ impl Sink<'_> {
         crate::compound::split_book(&mut mini)?;
         for piece in mini.pieces {
             let bytes = serde_json::to_vec(&piece).map_err(invalid)?;
+            if bytes.len() > MAX_PIECE_BYTES {
+                return Err(Error::Limit("individual playback piece bytes"));
+            }
             self.index.write_all(&self.offset.to_le_bytes())?;
             self.index.write_all(&(bytes.len() as u64).to_le_bytes())?;
             self.pieces.write_all(&bytes)?;
@@ -721,6 +804,45 @@ impl<'de> Visitor<'de> for DocumentSeed<'_, '_> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn giant_note_is_explicitly_unsupported_and_giant_piece_is_rejected()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let path =
+            std::env::temp_dir().join(format!("disk-book-budget-{}.json", uuid::Uuid::new_v4()));
+        let mut book = empty_book();
+        book.book_id = "budget".into();
+        book.revision = "one".into();
+        book.pieces.push(Piece {
+            id: "p".into(),
+            text: "note".into(),
+            word_id: "w".into(),
+            sources: Vec::new(),
+            block_id: "b".into(),
+            paragraph_end: false,
+            kind: "note".into(),
+            note_id: Some("n".into()),
+        });
+        let mut note = oversized_note("n");
+        note.pieces[0].text = "x".repeat(MAX_NOTE_BYTES as usize);
+        book.notes.push(note);
+        write_json(&path, &book)?;
+        let disk = DiskBook::open(&path)?;
+        let window = disk.load_window(0)?;
+        assert_eq!(window.book.notes[0].pieces[0].kind, "unsupported");
+        assert!(window.book.notes[0].pieces[0].text.contains("1 MiB"));
+        book.pieces[0].text = "x".repeat(MAX_PIECE_BYTES);
+        write_json(&path, &book)?;
+        let error = DiskBook::open(&path)
+            .err()
+            .ok_or("oversized piece accepted")?;
+        assert!(
+            error
+                .to_string()
+                .contains("individual playback piece bytes")
+        );
+        fs::remove_file(path)?;
+        Ok(())
+    }
     #[test]
     fn context_preserves_original_whitespace_styles_and_source_spans()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
