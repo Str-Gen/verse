@@ -16,6 +16,7 @@ const MAX_STATE_BYTES: u64 = 1024 * 1024;
 struct Store {
     root: PathBuf,
     book: Mutex<reader_core::Book>,
+    book_lock: Mutex<reader_core::persistence::BookLock>,
     self_test: bool,
     vocabulary: Mutex<Option<reader_core::vocabulary::Vocabulary>>,
 }
@@ -202,8 +203,22 @@ fn prepare_session(
     validate_book(&book)?;
     let parsed: reader_core::Book =
         reader_core::session::book_from_value(book.clone()).map_err(|e| e.to_string())?;
-    let resume =
-        reader_core::session::restore(&parsed, saved.as_ref()).map_err(|e| e.to_string())?;
+    let mut lock = store
+        .book_lock
+        .lock()
+        .map_err(|_| "Publication lock unavailable")?;
+    let next_lock = if lock.book_id() == parsed.book_id {
+        None
+    } else {
+        Some(reader_core::persistence::BookLock::acquire(
+            &parsed.book_id,
+        )?)
+    };
+    let durable =
+        reader_core::persistence::load_record(&store.root.join("state.json"), &parsed.book_id)
+            .map_err(|e| e.to_string())?;
+    let resume = reader_core::session::restore(&parsed, durable.as_ref().or(saved.as_ref()))
+        .map_err(|e| e.to_string())?;
     let normal = reader_core::session::plan(&parsed.pieces, &parsed.chapters, false);
     let notes = reader_core::session::plan(&parsed.pieces, &parsed.chapters, true);
     let note_plans: std::collections::BTreeMap<_, _> = parsed
@@ -234,6 +249,9 @@ fn prepare_session(
         .book
         .lock()
         .map_err(|_| "Book state is unavailable.")? = parsed;
+    if let Some(next_lock) = next_lock {
+        *lock = next_lock;
+    }
     Ok(result)
 }
 
@@ -250,19 +268,10 @@ fn boot(store: tauri::State<'_, Store>) -> Result<Boot, String> {
             .map_err(|_| "Book state is unavailable.")?,
     )
     .map_err(|e| e.to_string())?;
-    let state_path = store.root.join("state.json");
-    let state = if state_path.exists() {
-        {
-            let state: Value =
-                reader_core::location::read_json(&state_path).map_err(|e| e.to_string())?;
-            if !state.get("books").is_some_and(Value::is_object) {
-                return Err("Invalid saved books; existing state preserved.".into());
-            }
-            Some(state)
-        }
-    } else {
-        None
-    };
+    let id = book["book_id"].as_str().ok_or("Missing book identity")?;
+    let state = reader_core::persistence::load_record(&store.root.join("state.json"), id)
+        .map_err(|e| e.to_string())?
+        .map(|record| serde_json::json!({"books":{id:record}}));
     Ok(Boot {
         book,
         state,
@@ -282,11 +291,24 @@ fn import_book(json: String, store: tauri::State<'_, Store>) -> Result<Value, St
     }
     let book: Value = serde_json::from_str(&json).map_err(|_| "Book is not valid JSON.")?;
     validate_book(&book)?;
+    let id = book["book_id"].as_str().ok_or("Missing book identity")?;
+    let mut lock = store
+        .book_lock
+        .lock()
+        .map_err(|_| "Publication lock unavailable")?;
+    let next_lock = if lock.book_id() == id {
+        None
+    } else {
+        Some(reader_core::persistence::BookLock::acquire(id)?)
+    };
     let mut current = store
         .book
         .lock()
         .map_err(|_| "Book state is unavailable.")?;
     write_json(&store.root, "book.json", &book)?;
+    if let Some(next_lock) = next_lock {
+        *lock = next_lock;
+    }
     *current = reader_core::session::book_from_value(book.clone()).map_err(|e| e.to_string())?;
     Ok(book)
 }
@@ -297,7 +319,7 @@ fn import_book(json: String, store: tauri::State<'_, Store>) -> Result<Value, St
     reason = "Tauri command arguments are owned IPC values and managed handles"
 )]
 fn save_state(
-    mut state: Value,
+    state: Value,
     at: usize,
     book_id: String,
     store: tauri::State<'_, Store>,
@@ -320,8 +342,22 @@ fn save_state(
     }
     let record = reader_core::session::capture(book, at, &state["books"][&book_id])
         .map_err(|e| e.to_string())?;
-    state["books"][&book_id] = record.clone();
-    write_json(&store.root, "state.json", &state)?;
+    let chapter_at = book
+        .chapters
+        .iter()
+        .filter_map(|c| book.pieces.iter().position(|p| p.id == c.start_piece))
+        .filter(|start| *start <= at)
+        .max()
+        .unwrap_or(0);
+    let chapter = reader_core::session::capture(book, chapter_at, &state["books"][&book_id])
+        .map_err(|e| e.to_string())?;
+    reader_core::persistence::save_record(
+        &store.root.join("state.json"),
+        &book_id,
+        &record,
+        &chapter,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(record)
 }
 
@@ -390,9 +426,13 @@ fn initialize() -> Result<Store, String> {
             .map_err(|_| "Bundled demo is invalid.")?
     };
     validate_book(&book)?;
+    let book_lock = reader_core::persistence::BookLock::acquire(
+        book["book_id"].as_str().ok_or("Missing book identity")?,
+    )?;
     write_json(&root, "book.json", &book)?;
     Ok(Store {
         root,
+        book_lock: Mutex::new(book_lock),
         book: Mutex::new(reader_core::session::book_from_value(book).map_err(|e| e.to_string())?),
         self_test,
         vocabulary: Mutex::new(None),

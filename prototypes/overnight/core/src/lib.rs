@@ -8,6 +8,7 @@ mod compound;
 pub mod location;
 mod normalize;
 mod ornaments;
+pub mod persistence;
 pub mod playback;
 mod semantics;
 pub mod session;

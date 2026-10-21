@@ -383,6 +383,9 @@ pub fn write_json_with_limit<T: Serialize>(
         let _ = fs::remove_file(temp);
         return Err(error.into());
     }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::File::open(parent)?.sync_all()?;
+    }
     Ok(())
 }
 

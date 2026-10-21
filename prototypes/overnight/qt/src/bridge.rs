@@ -110,6 +110,7 @@ pub struct ReaderRust {
     feedback_chapter: QString,
     history: QString,
     model: Option<Model>,
+    book_lock: Option<reader_core::persistence::BookLock>,
     state_path: PathBuf,
 }
 
@@ -227,6 +228,22 @@ impl ffi::Reader {
     pub fn open_book(mut self: Pin<&mut Self>, path: &QString) {
         match Model::load(path.to_string()) {
             Ok(mut model) => {
+                let new_lock = if self
+                    .rust()
+                    .book_lock
+                    .as_ref()
+                    .is_some_and(|lock| lock.book_id() == model.book_id())
+                {
+                    None
+                } else {
+                    match reader_core::persistence::BookLock::acquire(model.book_id()) {
+                        Ok(lock) => Some(lock),
+                        Err(error) => {
+                            self.set_status(QString::from(error));
+                            return;
+                        }
+                    }
+                };
                 self.as_mut().finish_exposure();
                 let mut rust = self.as_mut().rust_mut();
                 rust.clock = Some(Instant::now());
@@ -239,6 +256,9 @@ impl ffi::Reader {
                     .model
                     .as_ref()
                     .and_then(|current| current.save(&self.rust().state_path).err());
+                if let Some(lock) = new_lock {
+                    self.as_mut().rust_mut().book_lock = Some(lock);
+                }
                 if let Err(error) = model.restore(&self.rust().state_path) {
                     model.status = error;
                 }
