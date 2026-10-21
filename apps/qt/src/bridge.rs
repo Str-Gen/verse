@@ -28,6 +28,7 @@ pub mod ffi {
         #[qproperty(bool, recovery_needed)]
         #[qproperty(i32, position)]
         #[qproperty(i32, end_position)]
+        #[qproperty(f64, progress)]
         #[qproperty(i32, speed)]
         #[qproperty(i32, delay_ms)]
         #[qproperty(bool, playing)]
@@ -98,6 +99,7 @@ pub struct ReaderRust {
     recovery_needed: bool,
     position: i32,
     end_position: i32,
+    progress: f64,
     speed: i32,
     delay_ms: i32,
     playing: bool,
@@ -417,6 +419,8 @@ impl ffi::Reader {
             );
             let recovery = model.recovery_description().unwrap_or_default();
             let recovery_needed = model.needs_recovery();
+            let progress = model.progress_percent();
+            self.as_mut().set_progress(progress);
             self.as_mut().set_chapter_index(extras.0);
             self.as_mut().set_follow_notes(extras.1);
             self.as_mut().set_feedback_enabled(extras.2);

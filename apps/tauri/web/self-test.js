@@ -20,7 +20,13 @@ export async function runTests(actualReader) {
     check('reading uses Omawrite font family', getComputedStyle($('book')).fontFamily.includes('IBM Plex Mono'));
     $('settings-button').click();
     check('footer menu exposes file and reading controls', !$('settings').hidden && !$('book-controls').hidden);
-    $('settings-button').click();
+    const sidebar = $('settings').getBoundingClientRect(), readingStage = $('reading-stage').getBoundingClientRect();
+    check('contents occupy a left sidebar beside the reading stage', sidebar.right <= readingStage.left && sidebar.height > sidebar.width);
+    const progressBox = $('book-progress').getBoundingClientRect();
+    check('book progress sits at bottom center', Math.abs((progressBox.left + progressBox.right) / 2 - innerWidth / 2) < 1 && progressBox.bottom === innerHeight);
+
+    $('speed').dispatchEvent(new KeyboardEvent('keydown', {code: 'Space', bubbles: true}));
+    check('Space dismisses controls without starting playback', reader.snapshot.mode === 'reading');
     check('footer menu collapses auxiliary controls', $('settings').hidden && $('book-controls').hidden);
     const original = native ? await (await fetch('demo.json')).json() : JSON.parse(JSON.stringify(reader.snapshot.book));
     check('startup is stopped at a source-matching saved anchor', reader.snapshot.mode === 'reading' && restore(original, reader.startup.books[original.book_id]).at === reader.snapshot.at);
@@ -40,6 +46,9 @@ export async function runTests(actualReader) {
     reader.play();
     check('preparation starts with a pulse', $('playback').classList.contains('preparing'));
     check('playback starts on selected passage', $('word').textContent === 'unbelievable' && reader.snapshot.mode === 'playing');
+    await wait(0);
+    check('playback keeps footer controls and progress visible', !$('return').hidden && $('play').textContent === 'Pause' && $('book-progress').getBoundingClientRect().height > 0);
+
     reader.play(); const paused = reader.snapshot.at; await wait(300);
     check('pause stops advancement', reader.snapshot.mode === 'paused' && reader.snapshot.at === paused);
     reader.returnToText();

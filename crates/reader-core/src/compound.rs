@@ -6,29 +6,39 @@ fn hyphen(character: char) -> bool {
     matches!(character, '-' | '\u{2010}' | '\u{2011}')
 }
 
+fn separator(character: char) -> bool {
+    hyphen(character)
+        || matches!(
+            character,
+            '\u{2012}'
+                ..='\u{2015}' | '\u{2e3a}' | '\u{2e3b}' | '\u{fe58}' | '\u{fe63}' | '\u{ff0d}'
+        )
+}
+
 pub(crate) fn continues(piece: &Piece, next: Option<&Piece>) -> bool {
     piece.kind == "word"
         && !piece.word_id.is_empty()
         && piece.text.ends_with(hyphen)
+        && !piece.text.chars().rev().nth(1).is_some_and(separator)
         && next.is_some_and(|next| {
             next.kind == "word" && next.word_id == piece.word_id && next.block_id == piece.block_id
         })
 }
 
 pub(crate) fn split_book(book: &mut Book) -> Result<()> {
-    split(&mut book.pieces)?;
+    split_pieces(&mut book.pieces)?;
     for note in &mut book.notes {
-        split(&mut note.pieces)?;
+        split_pieces(&mut note.pieces)?;
     }
     Ok(())
 }
 
-fn split(pieces: &mut Vec<Piece>) -> Result<()> {
+pub(crate) fn split_pieces(pieces: &mut Vec<Piece>) -> Result<()> {
     let mut ids: HashSet<_> = pieces.iter().map(|p| p.id.clone()).collect();
     let mut result = Vec::with_capacity(pieces.len());
     for piece in std::mem::take(pieces) {
         if piece.kind != "word"
-            || !piece.text.contains(hyphen)
+            || !piece.text.contains(separator)
             || piece.text.contains(['/', '\\', '@'])
             || !piece.text.chars().any(char::is_alphabetic)
         {
@@ -37,10 +47,28 @@ fn split(pieces: &mut Vec<Piece>) -> Result<()> {
         }
         let chars: Vec<_> = piece.text.chars().collect();
         let mut cuts = vec![0];
-        for (index, triple) in chars.windows(3).enumerate() {
-            if triple[0].is_alphanumeric() && hyphen(triple[1]) && triple[2].is_alphanumeric() {
-                cuts.push(index + 2);
+        let mut index = 0;
+        let mut segment_start = 0;
+        while index < chars.len() {
+            if !separator(chars[index]) {
+                index += 1;
+                continue;
             }
+            let start = index;
+            while index < chars.len() && separator(chars[index]) {
+                index += 1;
+            }
+            let left_word = chars[segment_start..start]
+                .iter()
+                .any(|c| c.is_alphanumeric());
+            let right_word = chars[index..]
+                .iter()
+                .take_while(|c| !separator(**c))
+                .any(|c| c.is_alphanumeric());
+            if left_word && right_word {
+                cuts.push(index);
+            }
+            segment_start = index;
         }
         if cuts.len() == 1 {
             result.push(piece);

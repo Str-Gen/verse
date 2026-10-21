@@ -951,7 +951,10 @@ impl<'de> Visitor<'de> for BookSeed<'_, '_> {
                 ))?,
                 "documents" => a.next_value_seed(DocumentsSeed(self.0))?,
                 "notes" => a.next_value_seed(ArraySeed(
-                    |n: Note| write_json(&self.0.root.join("notes").join(key(&n.id)), &n),
+                    |mut n: Note| {
+                        crate::compound::split_pieces(&mut n.pieces)?;
+                        write_json(&self.0.root.join("notes").join(key(&n.id)), &n)
+                    },
                     std::marker::PhantomData,
                 ))?,
                 "resources" => a.next_value_seed(ArraySeed(

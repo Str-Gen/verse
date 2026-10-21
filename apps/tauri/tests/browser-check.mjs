@@ -54,8 +54,7 @@ try {
   await check('font reflow preserves source piece', async () => {
     await page.locator('#settings-button').click();
     const before = await snapshot();
-    await page.locator('#font-size').focus();
-    await page.keyboard.press('End');
+    for (let i = 0; i < 6; i++) await page.locator('#font-larger').click();
     await page.waitForTimeout(100);
     const after = await snapshot(); assert.equal(after.at, before.at);
     assert.equal(await page.locator('#font-size').inputValue(), '32');

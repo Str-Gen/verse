@@ -33,6 +33,21 @@ function beginPlayback() {
   preparing = true; mode = 'playing'; $('playback').classList.add('preparing', 'running');
   timer = setTimeout(() => { preparing = false; $('playback').classList.remove('preparing'); schedule(); }, delay);
 }
+function syncControls() {
+  const playback = !$('playback').hidden;
+  $('reading').style.visibility = playback ? 'hidden' : '';
+  $('book-controls').hidden = $('settings').hidden || playback;
+  $('speed-control').hidden = $('settings').hidden;
+  for (const id of ['previous', 'next', 'page-label']) $(id).hidden = playback;
+  $('return').hidden = !playback;
+  $('play').textContent = mode === 'playing' ? 'Pause' : playback ? 'Continue' : 'Play selection';
+}
+function closeControls() {
+  $('settings').hidden = true;
+  $('settings-button').setAttribute('aria-expanded', 'false');
+  document.activeElement?.blur();
+  syncControls(); reflow();
+}
 function notice(text = '') { $('notice').textContent = text; }
 function preferences() { return Object.hasOwn(saved.books, book.book_id) ? saved.books[book.book_id] : {}; }
 function speed() { return Math.max(60, Math.min(1200, Number($('speed').value) || 350)); }
@@ -64,6 +79,12 @@ function choose(index, { explicit = true } = {}) {
     if (chapterAt(book, at)?.id !== chapterAt(book, index)?.id) paceChanges = [];
   }
   at = index;
+  const total = windowInfo?.total ?? book.pieces.length;
+  const progress = total > 1 ? ((windowInfo?.start ?? 0) + at) / (total - 1) * 100 : 0;
+  $('book-progress').textContent = `${progress.toFixed(1)}%`;
+  const chapter = [...$('chapters').options].filter(option => Number(option.value) <= (windowInfo?.start ?? 0) + at).at(-1);
+  if (chapter) $('chapters').value = chapter.value;
+  $('book-progress').setAttribute('aria-label', `Book progress: ${progress.toFixed(1)}%`);
   if (native && kindAt(at) === 'image') void refreshImages();
   document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
   document.querySelectorAll(`[data-piece="${at}"]`).forEach(el => el.classList.add('selected'));
@@ -444,12 +465,15 @@ $('book').addEventListener('mouseup', event => {
 $('play').onclick = play; $('return').onclick = returnToText;
 $('previous').onclick = () => turn(-1); $('next').onclick = () => turn(1);
 $('settings-button').onclick = () => {
-  const hidden = !$('settings').hidden;
-  $('settings').hidden = hidden;
-  $('book-controls').hidden = hidden;
-  $('settings-button').setAttribute('aria-expanded', String(!hidden));
-  reflow();
+  if (!$('settings').hidden) { closeControls(); return; }
+  if (mode === 'playing') { stop(); mode = 'paused'; }
+  $('settings').hidden = false;
+  $('settings-button').setAttribute('aria-expanded', 'true');
+  syncControls(); reflow();
 };
+for (const [id, delta] of [['font-smaller', -2], ['font-larger', 2]]) {
+  $(id).onclick = () => { $('font-size').value = Math.max(14, Math.min(38, Number($('font-size').value) + delta)); reflow(); };
+}
 $('font-size').oninput = reflow;
 $('speed').onchange = () => { $('speed').value = speed(); paceChanges.push({ date: new Date().toISOString(), wpm: speed(), sources: book.pieces[at].sources }); persist(); };
 $('feedback-enabled').onchange = persist;
@@ -469,16 +493,24 @@ $('close-details').onclick = () => $('details').close();
 $('accept-recovery').onclick = () => { if (recoveryAt !== null) { choose(recoveryAt); reflow(); } $('recovery').close(); };
 $('cancel-recovery').onclick = () => { $('recovery').close(); notice('Old saved location preserved. Select a passage or turn a page to choose a new location.'); };
 document.addEventListener('keydown', event => {
+  if (event.code === 'Space' && !['boundary', 'recovery'].some(id => $(id).open)
+      && (!$('settings').hidden || ['details', 'vocabulary', 'practice'].some(id => $(id).open))) {
+    event.preventDefault();
+    if (event.repeat) return;
+    for (const id of ['details', 'vocabulary', 'practice']) if ($(id).open) $(id).close();
+    closeControls(); return;
+  }
   if (document.querySelector('dialog[open]')) return;
   if (mode === 'reading' && /INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
   if (mode === 'reading' && event.target.tagName === 'BUTTON' && event.code === 'Space') return;
   if (event.code === 'KeyC') { event.preventDefault(); vocabulary.capture(); }
   else if (event.code === 'KeyV') { event.preventDefault(); vocabulary.open(); }
-  else if (event.code === 'Space') { event.preventDefault(); play(); }
+  else if (event.code === 'Space') { event.preventDefault(); if (!event.repeat) play(); }
   else if (event.code === 'Escape') returnToText();
   else if (event.code === 'ArrowRight') { event.preventDefault(); turn(1); }
   else if (event.code === 'ArrowLeft') { event.preventDefault(); turn(-1); }
 });
+new MutationObserver(syncControls).observe($('playback'), {attributes:true, attributeFilter:['hidden', 'class']});
 new ResizeObserver(() => { if (mode === 'reading') reflow(); }).observe($('viewport'));
 window.addEventListener('pagehide', () => persist(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'playing') { stop(); mode = 'paused'; persist(); } });
@@ -496,6 +528,10 @@ export const reader = {
   flush: () => writeQueue,
 };
 async function boot() {
+  if (native) {
+    $('open-label').textContent = 'Open EPUB';
+    $('open').accept = '.epub,application/epub+zip,.json,application/json';
+  }
   await startTheme(native);
   let result;
   if (native) result = await native.invoke('boot');

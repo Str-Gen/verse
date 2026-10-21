@@ -125,6 +125,18 @@ ApplicationWindow {
         locate()
         editor.forceActiveFocus()
     }
+    function handleSpace() {
+        if (controlsVisible || noteDialog.visible || historyDialog.visible || vocabularyPanel.visible) {
+            captureScope.popup.close()
+            controlsVisible = false
+            noteDialog.close()
+            historyDialog.close()
+            vocabularyPanel.close()
+            editor.forceActiveFocus()
+            return
+        }
+        reader.playing ? reader.pause() : begin()
+    }
     function toggleControls() {
         controlsVisible = !controlsVisible
         if (controlsVisible && reader.playing) reader.pause()
@@ -213,7 +225,7 @@ ApplicationWindow {
     Shortcut { sequence: "V"; enabled: window.shortcutsActive; onActivated: vocabularyPanel.showReview() }
     Shortcut { sequence: "Right"; enabled: window.shortcutsActive && !playback && !speedBox.activeFocus; onActivated: turn(1) }
     Shortcut { sequence: "Left"; enabled: window.shortcutsActive && !playback && !speedBox.activeFocus; onActivated: turn(-1) }
-    Shortcut { sequence: "Space"; enabled: window.shortcutsActive && !speedBox.activeFocus; onActivated: reader.playing ? reader.pause() : begin() }
+    Shortcut { sequence: "Space"; autoRepeat: false; enabled: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !feedbackDialog.visible; onActivated: handleSpace() }
     Shortcut { sequence: "Escape"; enabled: window.shortcutsActive; onActivated: returnToText() }
     FileDialog {
         id: openDialog
@@ -274,6 +286,7 @@ ApplicationWindow {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 12
+        anchors.bottomMargin: 22
         anchors.topMargin: Math.max(42, Math.round(window.height * 0.05))
         spacing: 6
         RowLayout {
@@ -327,7 +340,7 @@ ApplicationWindow {
                     CheckBox { text: "Chapter feedback"; checked: reader.feedback_enabled; onClicked: reader.set_options(reader.follow_notes, checked) }
                     Button { text: "Word list · V"; onClicked: vocabularyPanel.showReview() }
                     Button { text: "Capture · C"; onClicked: vocabularyPanel.capture() }
-                    ComboBox { model: ["Five seconds", "Three sentences"]; onActivated: vocabularyPanel.scope = currentIndex === 0 ? "seconds" : "sentences"; Accessible.name: "Vocabulary capture window" }
+                    ComboBox { id: captureScope; model: ["Five seconds", "Three sentences"]; onActivated: vocabularyPanel.scope = currentIndex === 0 ? "seconds" : "sentences"; Accessible.name: "Vocabulary capture window" }
                     Label { text: vocabularyPanel.message; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     Button { text: "Feedback history"; onClicked: historyDialog.open() }
                 }
@@ -469,6 +482,17 @@ ApplicationWindow {
             SpinBox { id: speedBox; visible: controlsVisible; from: 60; to: 1200; stepSize: 25; value: reader.speed; onValueModified: reader.change_speed(value); Accessible.name: "Words per minute" }
             ToolButton { text: reader.playing ? "Pause" : playback ? "Continue" : "Play selection"; onClicked: reader.playing ? reader.pause() : begin() }
         }
+    }
+    Label {
+        objectName: "bookProgress"
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 4
+        text: reader.progress.toFixed(1) + "%"
+        font.pixelSize: 11
+        color: theme.foreground
+        opacity: 0.5
+        Accessible.name: "Book progress: " + text
     }
     Timer { id: smokeTimer; interval: 700; onTriggered: smoke.run() }
     Smoke {

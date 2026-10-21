@@ -769,7 +769,8 @@ fn hyphenated_compounds_split_automatically_with_connected_beats() -> TestResult
             "2026-10-21",
             "10-20",
             "-5",
-            "word--word",
+            "word--",
+            "word",
             "https://example.com/a-b",
             "a-b@example.com"
         ]
@@ -800,6 +801,137 @@ fn hyphenated_compounds_split_automatically_with_connected_beats() -> TestResult
         serde_json::to_value(&book)?,
         "loading already split books must be idempotent"
     );
+    Ok(())
+}
+
+#[test]
+fn dash_joined_words_are_separate_playback_pieces() -> TestResult {
+    let page = synthetic_xhtml(
+        "<p>well-known well–known word—word word--word word——word é-lan word—‘quoted’ word’—next</p>",
+        "",
+    );
+    let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", page.as_bytes())])?;
+    let book = fixture.import()?;
+    let first = &book.documents[0].blocks[0].id;
+    let text: Vec<_> = book
+        .pieces
+        .iter()
+        .filter(|p| &p.block_id == first)
+        .map(|p| p.text.as_str())
+        .collect();
+    assert_eq!(
+        text,
+        [
+            "well-",
+            "known",
+            "well–",
+            "known",
+            "word—",
+            "word",
+            "word--",
+            "word",
+            "word——",
+            "word",
+            "é-",
+            "lan",
+            "word—",
+            "‘quoted’",
+            "word’—",
+            "next"
+        ]
+    );
+    verify_sources(&fixture.path, &book, &Limits::default())?;
+    Ok(())
+}
+
+#[test]
+fn cached_dash_words_split_in_both_session_and_disk_readers() -> TestResult {
+    let text = "well—known--phrase";
+    let source =
+        serde_json::json!({"document":"d", "node":"n", "offset":0, "length":text.chars().count()});
+    let piece = serde_json::json!({"id":"p", "word_id":"w", "block_id":"b", "kind":"word",
+        "text":text, "paragraph_end":true, "sources":[source.clone()]});
+    let block = serde_json::json!({"id":"b", "kind":"paragraph", "runs":[{"text":text, "sources":[source]}]});
+    let mut old = serde_json::json!({"schema_version":1, "book_id":"dash-cache", "revision":"v1", "title":"Dashes",
+        "documents":[{"id":"d", "blocks":[block.clone()]}], "pieces":[piece.clone()],
+        "chapters":[{"id":"c", "title":"Chapter", "start_piece":"p"}],
+        "notes":[{"id":"note", "blocks":[block], "pieces":[piece]}]});
+    old["pieces"][0]["note_id"] = serde_json::json!("note");
+    let unsplit: Book = serde_json::from_value(old.clone())?;
+    let old_saved = reader_core::location::SavedLocation::capture(&unsplit, "p")?;
+    let book = reader_core::session::book_from_value(old.clone())?;
+    let expected = ["well—", "known--", "phrase"];
+    assert_eq!(
+        book.pieces
+            .iter()
+            .map(|p| p.text.as_str())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(
+        book.notes[0]
+            .pieces
+            .iter()
+            .map(|p| p.text.as_str())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(
+        book.pieces
+            .iter()
+            .map(|p| p.sources[0].offset)
+            .collect::<Vec<_>>(),
+        [0, 5, 12]
+    );
+    assert_eq!(
+        book.pieces
+            .iter()
+            .map(|p| p.paragraph_end)
+            .collect::<Vec<_>>(),
+        [false, false, true]
+    );
+    assert_eq!(
+        reader_core::session::playback(&book, 0, false)
+            .ok_or("missing playback")?
+            .multiplier,
+        1.0
+    );
+    assert_eq!(
+        reader_core::session::playback(&book, 1, false)
+            .ok_or("missing playback")?
+            .multiplier,
+        1.0
+    );
+    let normalized = serde_json::to_value(&book)?;
+    assert_eq!(
+        serde_json::to_value(reader_core::session::book_from_value(normalized.clone())?)?,
+        normalized
+    );
+    let root = std::env::temp_dir().join(format!("reader-dash-cache-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root)?;
+    let path = root.join("book.json");
+    std::fs::write(&path, serde_json::to_vec(&old)?)?;
+    let disk = reader_core::book_store::DiskBook::open(&path)?;
+    let window = disk.load_window(0)?;
+    assert_eq!(window.total, 3);
+    assert_eq!(
+        serde_json::to_value(&window.book.pieces)?,
+        serde_json::to_value(&book.pieces)?
+    );
+    assert_eq!(
+        serde_json::to_value(&window.book.notes)?,
+        serde_json::to_value(&book.notes)?
+    );
+    assert!(matches!(
+        recover_location(&window.book, &old_saved),
+        Recovery::Exact { .. }
+    ));
+    let saved = reader_core::location::SavedLocation::capture(&book, &book.pieces[1].id)?;
+    assert!(matches!(
+        recover_location(&window.book, &saved),
+        Recovery::Exact { .. }
+    ));
+    std::fs::remove_dir_all(root)?;
     Ok(())
 }
 

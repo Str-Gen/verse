@@ -207,6 +207,17 @@ impl Model {
         json!(sources).to_string()
     }
 
+    pub fn progress_percent(&self) -> f64 {
+        let total = self
+            .store
+            .as_ref()
+            .map_or(self.book.pieces.len(), DiskBook::total_pieces);
+        if total <= 1 {
+            return 0.0;
+        }
+        self.global_position() as f64 / (total - 1) as f64 * 100.0
+    }
+
     pub fn global_position(&self) -> usize {
         self.window_start + self.current
     }
@@ -1264,6 +1275,7 @@ mod tests {
         fs::write(&path, include_str!("../fixtures/demo.json"))?;
         let mut model = Model::load(&path)?;
         assert!(model.book().pieces.len() <= 512);
+        assert_eq!(model.progress_percent(), 0.0);
         let mut visited = vec![model.current_text()];
         model.feedback_enabled = false;
         for _ in 0..800 {
@@ -1279,6 +1291,7 @@ mod tests {
         assert!(visited.len() > 600);
         assert!(model.global_position() > 600);
         assert_eq!(model.status, "End of book");
+        assert!(model.progress_percent() > 99.0);
         let global = model.global_position();
         model.save(root.join("resume.json"))?;
         model.save(root.join("resume.json"))?;
