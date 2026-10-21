@@ -2,7 +2,6 @@
 """Sequential release process-tree samples on one synthetic core export."""
 from datetime import datetime, timezone
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -10,10 +9,9 @@ import signal
 import subprocess
 import time
 
+import measure_process as measurement
+
 HERE = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location('independent_measure', HERE/'../validation/measure.py')
-measurement = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(measurement)
 
 
 def builders():

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the real CLI/store with independently authored edition fixtures."""
+"""Exercise the real CLI/store with synthetic edition fixtures."""
 import hashlib
 import json
 from pathlib import Path
@@ -9,7 +9,7 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 CORE = HERE/'../core/target/debug/reader-core'
-FIXTURES = HERE/'evidence/independent/fixtures'
+FIXTURES = HERE/'fixtures'
 
 def main():
     (HERE/'.local').mkdir(exist_ok=True)
@@ -32,7 +32,8 @@ def main():
             after = {p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in store.rglob('*.json')}
             assert after == saved, 'Offering recovery mutated saved location'
             results.append({'edition':name,'result':actual,'saved_unchanged':True})
-    report = {'results':results,'limitation':'The independent four-word passage is below the Rust core confidence threshold of eight words/32 scalars, so unique also offers the identified chapter. Longer unique passage recovery is covered by core tests; frontend matchers currently use shorter contexts.'}
+    report = {'results':results,'limitation':'The four-word passage is below the Rust core confidence threshold of eight words/32 scalars, so unique also offers the identified chapter. Longer unique passage recovery is covered by core tests; both native frontends share the core recovery policy.'}
+    (HERE/'evidence').mkdir(exist_ok=True)
     (HERE/'evidence/recovery.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2))
 

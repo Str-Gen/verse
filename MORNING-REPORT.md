@@ -1,5 +1,7 @@
 # Overnight integration, 2026-10-21
 
+Historical report. The legacy independent oracle was subsequently removed. Use [current verification instructions](prototypes/overnight/integration/README.md#verification); commands and outcomes below describe the original overnight run.
+
 All four worker branches are merged into `overnight/20261021-integration` with real merge commits. Qt/QML with Rust and Tauri/WebKitGTK both run on this Linux/Omarchy host and consume the same Rust EPUB content core. This is a runnable prototype integration, not a production release or complete accepted-feature implementation.
 
 ## Run it

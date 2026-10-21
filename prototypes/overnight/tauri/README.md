@@ -92,7 +92,7 @@ Native persistence writes on position changes; close-during-write durability and
 
 ## Integrated core launcher
 
-`./prototypes/overnight/tauri/run.sh --demo` now regenerates the shared Rust core's synthetic EPUB export. `--epub PATH` imports a local EPUB through the same core CLI and identity store used by Qt. `--book-json PATH` still opens an existing export, and no arguments retain last-book behavior. See `../integration/README.md` for reproducible integrated checks and known schema boundaries. The native suite also consumes the independent worker's hidden-text/astral-Unicode export. Worker REPORT.md is historical evidence from before integration.
+`./prototypes/overnight/tauri/run.sh --demo` now regenerates the shared Rust core's synthetic EPUB export. `--epub PATH` imports a local EPUB through the same core CLI and identity store used by Qt. `--book-json PATH` still opens an existing export, and no arguments retain last-book behavior. See `../integration/README.md` for reproducible integrated checks and known schema boundaries. The native suite also checks a standalone normalized Unicode fixture for DOM selection and source return. Worker REPORT.md is historical evidence from before integration.
 
 ## Omarchy colors
 

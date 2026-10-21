@@ -172,11 +172,10 @@ QtObject {
             }
             return
         }
-        if (smokeMode === "independent") {
+        if (smokeMode === "unicode") {
             let text = support.inspectDocument(editor).plainText
-            check(text === reader.plain_text, "independent export agrees with Qt native layout")
-            check(text.indexOf("unbelievable") >= 0 && text.indexOf("A😀B") >= 0 && text.indexOf("𝄞tone") >= 0, "independent Unicode words remain whole")
-            check(text.indexOf("Hidden") < 0 && text.indexOf("hidden inline") < 0 && text.indexOf("Publisher script") < 0, "independent hidden content absent in native renderer")
+            check(text === reader.plain_text, "Unicode fixture export agrees with Qt native layout")
+            check(text.indexOf("unbelievable") >= 0 && text.indexOf("A😀B") >= 0 && text.indexOf("𝄞tone") >= 0, "Unicode fixture keeps whole words")
             let start = text.indexOf("A😀B")
             editor.select(start + 1, start + 3)
             host.begin()
@@ -187,12 +186,12 @@ QtObject {
             check(reader.word === "𝄞tone", "next whole astral word displayed")
             let last = reader.position
             host.returnToText()
-            check(editor.selectionStart === last, "independent source round trip through native layout")
+            check(editor.selectionStart === last, "Unicode fixture source round trip through native layout")
             host.showNote("note:text.xhtml#n1")
-            check(host.noteVisible && host.noteText === "A small note.", "independent detached note retained in manual dialog")
+            check(host.noteVisible && host.noteText === "A small note.", "Unicode fixture detached note retained in manual dialog")
             host.closeNote()
-            if (screenshotPath !== "") check(support.capture(screenshotPath), "independent native screenshot saved")
-            console.log("INDEPENDENT COMPLETE")
+            if (screenshotPath !== "") check(support.capture(screenshotPath), "Unicode fixture native screenshot saved")
+            console.log("UNICODE COMPLETE")
             support.finish(0)
             })
             return

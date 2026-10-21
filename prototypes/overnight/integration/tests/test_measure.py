@@ -7,7 +7,7 @@ import time
 from types import SimpleNamespace
 import unittest
 
-MODULE = Path(__file__).resolve().parents[1] / 'measure.py'
+MODULE = Path(__file__).resolve().parents[1] / 'measure_process.py'
 spec = importlib.util.spec_from_file_location('measure', MODULE)
 measure = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(measure)
