@@ -70,6 +70,30 @@ impl Model {
             && session::kind(&self.book.pieces[self.current]) == session::Kind::Word)
             .then_some(self.current)
     }
+    pub fn open(path: impl AsRef<Path>, import_directory: &Path) -> Result<Self, String> {
+        let path = path.as_ref();
+        if !path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("epub"))
+        {
+            return Self::load(path);
+        }
+        let identities = location::LocalStore::open(import_directory.join("identities"))
+            .map_err(|error| format!("Cannot open the book library: {error}"))?;
+        let book_id = identities
+            .identity_for(path)
+            .map_err(|error| format!("Cannot open EPUB: {error}"))?;
+        let output = import_directory.join(format!("{book_id}.json"));
+        reader_core::export_epub(
+            path,
+            &book_id,
+            &reader_core::ImportOptions::default(),
+            &output,
+        )
+        .map_err(|error| format!("Cannot import EPUB: {error}"))?;
+        Self::load(output)
+    }
+
     pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref();
         let store = DiskBook::open(path).map_err(|e| e.to_string())?;
@@ -1194,6 +1218,43 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn epub_open_reimports_with_stable_identity_and_restores_progress()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(format!("qt-epub-import-{}", std::process::id()));
+        fs::create_dir_all(&root)?;
+        let fixtures =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/reader-core/fixtures");
+        let epub = root.join("book with spaces.EPUB");
+        fs::copy(fixtures.join("complex.epub"), &epub)?;
+        let imports = root.join("imports");
+        let state = root.join("resume.json");
+        let mut model = Model::open(&epub, &imports)?;
+        assert!(!model.plain_text.is_empty());
+        model.jump_chapter(1);
+        model.speed = 420;
+        model.save(&state)?;
+        let book_id = model.book_id().to_owned();
+        let revision = model.book().revision.clone();
+        let mut reopened = Model::open(&epub, &imports)?;
+        assert_eq!(reopened.book_id(), book_id);
+        reopened.restore(&state)?;
+        assert_eq!(reopened.global_position(), model.global_position());
+        assert_eq!(reopened.speed, 420);
+        assert!(!reopened.playing);
+        fs::copy(fixtures.join("revised.epub"), &epub)?;
+        let revised = Model::open(&epub, &imports)?;
+        assert_eq!(revised.book_id(), book_id);
+        assert_ne!(revised.book().revision, revision);
+        fs::write(&epub, "invalid EPUB")?;
+        assert!(Model::open(&epub, &imports).is_err());
+        assert!(!model.plain_text.is_empty());
+        assert!(Model::open(root.join("missing.epub"), &imports).is_err());
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
     #[test]
     fn disk_windows_traverse_and_restore_without_retaining_the_book()
     -> Result<(), Box<dyn std::error::Error>> {

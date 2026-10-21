@@ -26,6 +26,18 @@ QtObject {
     function run() {
         let reader = readerObject
         let editor = textEditor
+        if (smokeMode === "epub") {
+            check(reader.title.length > 0 && reader.html.length > 0, "EPUB opens in native reader")
+            check(JSON.parse(reader.chapters).length > 0, "EPUB contents available")
+            const title = reader.title
+            const html = reader.html
+            reader.open_book("/nonexistent/verse-import-test.epub")
+            check(reader.title === title && reader.html === html, "failed EPUB open retains current book")
+            check(reader.status.indexOf("Cannot open EPUB") >= 0, "EPUB error reported")
+            console.log("EPUB COMPLETE")
+            support.finish(0)
+            return
+        }
         if (smokeMode === "memory") {
             const chapters = JSON.parse(reader.chapters)
             if (phase === 0) {

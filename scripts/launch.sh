@@ -4,7 +4,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 frontend=$1
 shift
 case "$frontend" in qt|tauri) ;; *) echo 'Expected qt or tauri' >&2; exit 2;; esac
-if [[ "${1:-}" == --demo || "${1:-}" == --epub ]]; then
+if [[ "${1:-}" == --demo || ( "$frontend" == tauri && "${1:-}" == --epub ) ]]; then
   mode=$1
   shift
   mkdir -p "$here/.local"
@@ -19,10 +19,11 @@ if [[ "${1:-}" == --demo || "${1:-}" == --epub ]]; then
   "$here/export.sh" export --epub "$input" --output "$output" --store "$here/.local/identities"
   set -- --book-json "$output" "$@"
 fi
-if [[ "${1:-}" == --book-json ]]; then
-  input=$(realpath "${2:?--book-json requires a path}")
+if [[ "${1:-}" == --book-json || "${1:-}" == --epub ]]; then
+  flag=$1
+  input=$(realpath "${2:?book input requires a path}")
   shift 2
-  set -- --book-json "$input" "$@"
+  set -- "$flag" "$input" "$@"
 fi
 cd "$here/../apps/$frontend"
 if [[ "$frontend" == qt ]]; then

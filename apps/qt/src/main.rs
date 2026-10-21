@@ -5,11 +5,11 @@ fn main() {
         match argument.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "Qt reader prototype\nUsage: verse-qt [--book-json PATH] [--state-dir DIRECTORY]\nWith no book argument, reopen the last book or use the synthetic demo.\nREADER_THEME_FILE overrides the watched colors.toml without changing the desktop."
+                    "Qt reader prototype\nUsage: verse-qt [--epub PATH | --book-json PATH] [--state-dir DIRECTORY]\nWith no book argument, reopen the last book or use the synthetic demo.\nREADER_THEME_FILE overrides the watched colors.toml without changing the desktop."
                 );
                 return;
             }
-            "--book-json" | "--state-dir" => {
+            "--epub" | "--book-json" | "--state-dir" => {
                 if args.next().is_none() {
                     eprintln!("{argument} requires a path");
                     std::process::exit(2);

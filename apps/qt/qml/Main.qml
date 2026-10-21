@@ -217,8 +217,8 @@ ApplicationWindow {
     Shortcut { sequence: "Escape"; enabled: window.shortcutsActive; onActivated: returnToText() }
     FileDialog {
         id: openDialog
-        title: "Open normalized book JSON"
-        nameFilters: ["Book JSON (*.json)"]
+        title: "Open EPUB"
+        nameFilters: ["EPUB books (*.epub *.EPUB)"]
         onAccepted: {
             reader.open_book(support.localPath(selectedFile))
             playback = false
@@ -280,7 +280,7 @@ ApplicationWindow {
             visible: controlsVisible && !playback
             Layout.fillWidth: true
             Label { text: reader.title; textFormat: Text.PlainText; elide: Text.ElideRight; Layout.fillWidth: true; font.pixelSize: 15 }
-            Button { text: "Open JSON"; onClicked: openDialog.open() }
+            Button { text: "Open EPUB"; onClicked: openDialog.open() }
             ToolButton { text: "A−"; Accessible.name: "Decrease reading font"; onClicked: { preserveSelection(); textSize = Math.max(14, textSize - 2); reflow.restart() } }
             ToolButton { text: "A+"; Accessible.name: "Increase reading font"; onClicked: { preserveSelection(); textSize = Math.min(38, textSize + 2); reflow.restart() } }
         }

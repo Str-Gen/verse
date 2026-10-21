@@ -1,6 +1,6 @@
 # Native Qt reader proof
 
-This workspace crate keeps reading state, source mapping, playback and persistence in Rust. CXX-Qt 0.10 generates the QObject bridge. QML owns the interface and pagination over Qt's native rich-text layout. It consumes normalized version-1 book JSON; it does not parse EPUBs.
+This workspace crate keeps reading state, source mapping, playback and persistence in Rust. CXX-Qt 0.10 generates the QObject bridge. QML owns the interface and pagination over Qt's native rich-text layout. It imports EPUBs through the shared Rust core and renders the normalized book.
 
 From the repository root, launch the synthetic demo with one command:
 
@@ -10,13 +10,13 @@ From the repository root, launch the synthetic demo with one command:
 
 The launcher exports the shared Rust core synthetic EPUB for `--demo`, then builds with at most two compiler jobs. `--epub PATH` uses the same importer and canonical-path identity store as Tauri. See `../../scripts/README.md`. Requirements are Rust 1.99.0, a C++ compiler, Qt 6 development tools and the Core, Gui, Qml, Quick, QuickControls2, Concurrent, DBus and Quick Dialogs runtime modules. This machine has Qt 6.12. No CMake or privileged installation is needed. Cargo dependencies are locked. The demo and its SVG are original, redistributable synthetic content.
 
-For an exported book:
+To open an EPUB:
 
 ```sh
-./apps/qt/run.sh --book-json /absolute/path/book.json
+./apps/qt/run.sh --epub /absolute/path/book.epub
 ```
 
-Relative input paths are relative to this component because the launcher changes directory. The Open JSON button also switches books. A failed open retains the current book. With no input argument, the app opens its last successfully opened JSON path, or the demo on first launch.
+The Open EPUB button imports and switches books. The importer uses the shared canonical-path identities in `scripts/.local/identities` and caches normalized books in `scripts/.local`. A failed import retains the current book. With no input argument, the app reopens its last successfully opened file, or the demo on first launch. EPUBs are imported again on reopen so changed editions use the existing location recovery. `--book-json PATH` remains available for development exports. Launcher paths are relative to the calling directory.
 
 Select a passage and press Space or Play selection. Space pauses or continues; Escape returns to the last displayed piece. Left/Right and Previous/Next browse conventional pages. A−/A+ changes font size. Resize and typography changes retain the source anchor. The WPM control starts at 350 and is saved separately for each book. Images, unsupported pieces and logical chapter transitions pause playback. Continue advances past an inspected image. Notes open on click and are skipped in playback by default. Enable Play footnotes in the contents sidebar to read them automatically and return after the reference. Escape returns to the reference in the book. Ornaments are skipped according to the producer's classification.
 
@@ -62,6 +62,7 @@ cargo clippy --workspace --all-targets --locked -j 2 -- -D warnings
 cargo test --workspace --locked -j 2
 cargo test --workspace --doc --locked -j 2
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked -j 2
+./tests/epub.sh
 ./tests/theme.sh
 ./tests/whitespace.sh
 ./tests/smoke.sh

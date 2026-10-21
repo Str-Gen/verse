@@ -246,7 +246,7 @@ impl ffi::Reader {
                 None
             }
         };
-        let explicit = argument("--book-json");
+        let explicit = argument("--epub").or_else(|| argument("--book-json"));
         let path = explicit
             .clone()
             .or(remembered)
@@ -268,7 +268,9 @@ impl ffi::Reader {
     }
 
     pub fn open_book(mut self: Pin<&mut Self>, path: &QString) {
-        match Model::load(path.to_string()) {
+        let import_directory =
+            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/.local"));
+        match Model::open(path.to_string(), import_directory) {
             Ok(mut model) => {
                 let new_lock = if self
                     .rust()
