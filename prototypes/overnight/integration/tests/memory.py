@@ -276,7 +276,12 @@ def main():
         report["fixtures"] = {size: fixture(paths[size], count) for size, count in (("small", args.small_pieces), ("large", args.large_pieces))}
         for attempt in range(args.runs):
             for size in ("small", "large"):
+                if fingerprint(args.binary) != report["binary_sha256"]:
+                    raise SystemExit("Binary changed during measurement; previous runs retained in artifact")
                 row = run_once(args, paths[size], root, attempt, size)
+                if fingerprint(args.binary) != report["binary_sha256"]:
+                    row["passed"] = False
+                    row["binary_changed_during_run"] = True
                 report["results"].append(row)
                 report["summary"] = summarize(report["results"])
                 args.output.write_text(json.dumps(report, indent=2) + "\n")
