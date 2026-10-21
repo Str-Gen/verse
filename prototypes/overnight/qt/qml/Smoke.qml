@@ -8,6 +8,7 @@ QtObject {
     property int anchor: 0
     property string anchorWord: ""
     property string initialHtml: ""
+    property var coreImages: []
     property int playbackStart: 0
     property int displayedBeforeReturn: 0
     function check(condition, label) {
@@ -41,7 +42,7 @@ QtObject {
                 console.log("MEMORY COMPLETE")
                 support.finish(0)
             } else {
-                reader.jump_chapter(phase % 2 === 0 ? chapters.length - 1 : 0)
+                host.jumpChapter(phase % 2 === 0 ? chapters.length - 1 : 0)
                 phase += 1
                 later.start()
             }
@@ -250,10 +251,26 @@ QtObject {
             return
         }
         if (smokeMode === "core") {
+            if (phase >= 100) {
+                const current = support.inspectDocument(editor)
+                check(current.loadedImages <= 5, "native decoded image working set stays bounded")
+                check(current.imageSizes.some(size => size.position === reader.position), "visited image decodes at its exact source position")
+                check(current.plainText === reader.plain_text, "image prefetch preserves native source coordinates")
+                const next = phase - 99
+                if (next === coreImages.length) {
+                    console.log("CORE COMPLETE")
+                    support.finish(0)
+                } else {
+                    reader.select(coreImages[next])
+                    phase += 1
+                    later.start()
+                }
+                return
+            }
             let report = support.inspectDocument(editor)
             check(report.plainText === reader.plain_text, "integrated core text matches native UTF-16 layout")
             check(report.italic > 0 && report.bold > 0 && report.headings > 0, "integrated core structure renders natively")
-            check(report.images === 5 && report.loadedImages === 5, "all five core raster occurrences decode in Qt")
+            check(report.images === 5 && report.loadedImages > 0 && report.loadedImages <= 5, "core images prefetch within the native cache bound")
             for (let size of report.imageSizes) {
                 check(Math.abs(size.width * size.naturalHeight - size.height * size.naturalWidth) < 0.1,
                       "image preserves intrinsic aspect ratio")
@@ -288,8 +305,14 @@ QtObject {
             check(!reader.playing && reader.status.indexOf("Inspect") >= 0, "core image pauses for inspection")
             host.returnToText()
             if (screenshotPath !== "") check(support.capture(screenshotPath), "integrated core screenshot saved")
-            console.log("CORE COMPLETE")
-            support.finish(0)
+            coreImages = []
+            for (let at = 0; at < report.plainText.length; at++) {
+                if (report.plainText[at] === "\ufffc") coreImages.push(at)
+            }
+            check(coreImages.length === 5, "all raster source positions are available for native traversal")
+            reader.select(coreImages[0])
+            phase = 100
+            later.start()
             return
         }
         if (smokeMode === "recover-pending" || smokeMode === "recover-confirm") {

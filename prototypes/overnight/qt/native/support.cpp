@@ -25,6 +25,20 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QDir>
+namespace {
+QString imageKey(const QString &hash) {
+    static const auto transparent = []() {
+        QImage pixel(1, 1, QImage::Format_ARGB32_Premultiplied);
+        pixel.fill(Qt::transparent);
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        pixel.save(&buffer, "PNG");
+        return QString::fromLatin1(bytes.toBase64());
+    }();
+    return QStringLiteral("data:image/png;name=") + hash + QStringLiteral(";base64,") + transparent;
+}
+}
 void Support::finish(int code) { QCoreApplication::exit(code); }
 bool Support::capture(const QString &path) {
     for (auto *window : QGuiApplication::allWindows()) {
@@ -51,10 +65,12 @@ QVariantMap Support::inspectDocument(QObject *editor) {
                 ++images;
                 auto resource = document->resource(QTextDocument::ImageResource, QUrl(format.toImageFormat().name()));
                 auto image = qvariant_cast<QImage>(resource);
+                if (format.toImageFormat().name().startsWith(QStringLiteral("data:image/png;name=")) &&
+                    (!this->images.contains(format.toImageFormat().name()) || this->images.value(format.toImageFormat().name()).isNull())) image = QImage();
                 if (!image.isNull()) {
                     ++loadedImages;
                     auto size = format.toImageFormat();
-                    imageSizes.append(QVariantMap{{"width", size.width()}, {"height", size.height()},
+                    imageSizes.append(QVariantMap{{"position", fragment.position()}, {"width", size.width()}, {"height", size.height()},
                         {"naturalWidth", image.width()}, {"naturalHeight", image.height()}});
                 }
             }
@@ -120,7 +136,11 @@ void Support::installImages(QObject *editor) {
     imageDocument = document;
     imagePool.setMaxThreadCount(1);
     document->setResourceProvider([this](const QUrl &url) -> QVariant {
-        return images.value(url.toString());
+        const auto found = images.constFind(url.toString());
+        if (found != images.cend() && !found.value().isNull()) return found.value();
+        QImage placeholder(1, 1, QImage::Format_ARGB32_Premultiplied);
+        placeholder.fill(Qt::transparent);
+        return placeholder;
     });
     connect(this, &Support::imagesReady, document, [this, document]() {
         for (auto it = images.cbegin(); it != images.cend(); ++it)
@@ -139,8 +159,8 @@ QString Support::imageHtml(const QString &html, const QString &resourceJson) {
     const auto resources = QJsonDocument::fromJson(resourceJson.toUtf8()).array();
     for (const auto &resource : resources) {
         const auto source = resource.toString();
-        const auto key = QStringLiteral("reader-image:") + QString::fromLatin1(
-            QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex());
+        const auto key = imageKey(QString::fromLatin1(
+            QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex()));
         if (next.size() == 5) break;
         next.insert(key);
         if (!images.contains(key) && loadingImage != key) sources.append({key, source});
@@ -148,8 +168,8 @@ QString Support::imageHtml(const QString &html, const QString &resourceJson) {
     while (matches.hasNext()) {
         auto match = matches.next();
         auto source = match.captured(1);
-        auto key = source.startsWith(QStringLiteral("reader-image:")) ? source : QStringLiteral("reader-image:") + QString::fromLatin1(
-            QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex());
+        auto key = imageKey(source.startsWith(QStringLiteral("reader-image:")) ? source.mid(13) : QString::fromLatin1(
+            QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex()));
         output += html.mid(offset, match.capturedStart(1) - offset) + key;
         offset = match.capturedEnd(1);
         if (resources.isEmpty() && next.size() < 5 && !next.contains(key)) {
@@ -169,6 +189,7 @@ QString Support::imageHtml(const QString &html, const QString &resourceJson) {
     pendingImages.clear();
     for (const auto &source : sources) pendingImages.insert(source.first, source.second);
     loadNextImage();
+    QMetaObject::invokeMethod(this, [this]() { emit imagesReady(); }, Qt::QueuedConnection);
     return output;
 }
 

@@ -143,7 +143,13 @@ impl Model {
             .book
             .resources
             .iter()
-            .map(|resource| resource.data_url.clone())
+            .filter_map(|resource| {
+                if resource.data_url.is_empty() {
+                    local_image_uri(&resource.id, &self.directory).ok()
+                } else {
+                    Some(resource.data_url.clone())
+                }
+            })
             .collect();
         let markers: Vec<_> = self
             .book
@@ -695,7 +701,7 @@ impl Model {
             let chapter = store
                 .capture(chapter_start, &preferences)
                 .map_err(|e| e.to_string())?;
-            return reader_core::persistence::save_record(path, self.book_id(), &record, &chapter)
+            return reader_core::persistence::save_record_for_book(path, store, &record, &chapter)
                 .map_err(|e| e.to_string());
         }
         let mut saved = read_saved(path)?;
@@ -768,7 +774,7 @@ impl Model {
         self.playing = false;
         self.recovery = None;
         if let Some(store) = &self.store {
-            let Some(state) = reader_core::persistence::load_record(path.as_ref(), self.book_id())
+            let Some(state) = reader_core::persistence::load_record_for_book(path.as_ref(), store)
                 .map_err(|e| e.to_string())?
             else {
                 return Ok(());
@@ -1044,7 +1050,10 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
         }
         if block.kind == "image" {
             if let Some(resource) = &block.resource {
-                let uri = if let Some(embedded) = book.resources.iter().find(|r| &r.id == resource)
+                let uri = if let Some(embedded) = book
+                    .resources
+                    .iter()
+                    .find(|r| &r.id == resource && !r.data_url.is_empty())
                 {
                     if ![
                         "data:image/png;base64,",
@@ -1211,6 +1220,7 @@ mod tests {
         assert_eq!(model.status, "End of book");
         let global = model.global_position();
         model.save(root.join("resume.json"))?;
+        model.save(root.join("resume.json"))?;
         let saved_path =
             reader_core::persistence::record_path(&root.join("resume.json"), model.book_id());
         let mut saved: Value = location::read_json(&saved_path)?;
@@ -1220,6 +1230,12 @@ mod tests {
         resumed.restore(root.join("resume.json"))?;
         assert_eq!(resumed.global_position(), global);
         assert!(resumed.status.contains("Invalid feedback history"));
+        saved["location"]["sources"][0]["node"] = json!("missing-source");
+        location::write_json(&saved_path, &saved)?;
+        let mut recovered = Model::load(&path)?;
+        recovered.restore(root.join("resume.json"))?;
+        assert_eq!(recovered.global_position(), global);
+        assert!(!recovered.needs_recovery());
         resumed.jump_chapter(0);
         assert_eq!(resumed.global_position(), 0);
         resumed.jump_chapter(1);
