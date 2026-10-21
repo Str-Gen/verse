@@ -32,6 +32,7 @@ pub struct BookWindow {
 #[derive(Debug)]
 pub struct DiskBook {
     root: PathBuf,
+    _lease: File,
     metadata: Book,
     total: usize,
     chapter_starts: Vec<usize>,
@@ -51,24 +52,81 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     Ok(())
 }
 
+fn cache_directory() -> Result<PathBuf> {
+    let root = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .ok_or_else(|| invalid("no local cache directory configured"))?;
+    Ok(root.join("quiet-reader").join("book-spools"))
+}
+fn private_directory(path: &Path) -> Result<()> {
+    fs::create_dir_all(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+fn create_spool(base: &Path) -> Result<(PathBuf, File)> {
+    private_directory(base)?;
+    let guard = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(base.join("spools.lock"))?;
+    guard.lock()?;
+    for entry in fs::read_dir(base)? {
+        let entry = entry?;
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => {}
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name
+            .strip_prefix("quiet-reader-book-")
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+        {
+            continue;
+        }
+        let Ok(lease) = File::open(entry.path().join("lease")) else {
+            continue;
+        };
+        if lease.try_lock().is_ok() {
+            // The creation lock prevents racing another opener before it acquires its lease.
+            fs::remove_dir_all(entry.path())?;
+        }
+    }
+    let root = base.join(format!("quiet-reader-book-{}", uuid::Uuid::new_v4()));
+    private_directory(&root)?;
+    let lease = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(root.join("lease"))?;
+    lease.lock()?;
+    Ok((root, lease))
+}
+
 impl DiskBook {
     /// Streams an export into a private disk spool. Spools are removed on drop.
     /// No book-sized piece index or decoded image collection is retained in memory.
     pub fn open(path: &Path) -> Result<Self> {
-        let root = std::env::temp_dir().join(format!("quiet-reader-book-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-        }
-        let result = Self::build(path, root.clone());
+        let (root, lease) = create_spool(&cache_directory()?)?;
+        let result = Self::build(path, root.clone(), lease);
         if result.is_err() {
             let _ = fs::remove_dir_all(root);
         }
         result
     }
-    fn build(path: &Path, root: PathBuf) -> Result<Self> {
+    fn build(path: &Path, root: PathBuf, lease: File) -> Result<Self> {
         for name in ["blocks", "runs", "notes", "resources"] {
             fs::create_dir(root.join(name))?;
         }
@@ -95,6 +153,7 @@ impl DiskBook {
         drop(sink);
         let mut result = Self {
             root,
+            _lease: lease,
             metadata,
             total,
             chapter_starts: Vec::new(),
@@ -879,6 +938,24 @@ impl<'de> Visitor<'de> for DocumentSeed<'_, '_> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn abandoned_spools_are_reaped_without_touching_live_readers()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let base = std::env::temp_dir().join(format!("spool-lease-test-{}", uuid::Uuid::new_v4()));
+        let (first, lease1) = create_spool(&base)?;
+        let (second, lease2) = create_spool(&base)?;
+        assert!(first.exists());
+        assert!(second.exists());
+        drop(lease1);
+        let (third, lease3) = create_spool(&base)?;
+        assert!(!first.exists());
+        assert!(second.exists());
+        assert!(third.exists());
+        drop(lease2);
+        drop(lease3);
+        fs::remove_dir_all(base)?;
+        Ok(())
+    }
     #[test]
     fn partial_paragraph_exposes_only_selectable_pieces()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
