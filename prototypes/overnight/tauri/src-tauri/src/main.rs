@@ -5,17 +5,17 @@ use serde_json::Value;
 use std::{
     collections::HashSet,
     env, fs,
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
 const MAX_BOOK_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_STATE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_STATE_BYTES: u64 = 1024 * 1024;
 
 struct Store {
     root: PathBuf,
-    book: Mutex<Value>,
+    book: Mutex<reader_core::Book>,
     self_test: bool,
 }
 
@@ -179,21 +179,48 @@ fn validate_book(book: &Value) -> Result<(), String> {
 }
 
 fn write_json(root: &Path, name: &str, value: &Value) -> Result<(), String> {
-    let bytes = serde_json::to_vec(value).map_err(|_| "Could not encode local state.")?;
-    let temp = root.join(format!("{name}.tmp"));
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(&temp)
-        .map_err(|_| "Could not create local state.")?;
-    file.write_all(&bytes)
-        .map_err(|_| "Could not write local state.")?;
-    fs::rename(&temp, root.join(name)).map_err(|_| "Could not replace local state.".into())
+    reader_core::location::write_json_with_limit(
+        &root.join(name),
+        value,
+        if name == "book.json" {
+            MAX_BOOK_BYTES
+        } else {
+            MAX_STATE_BYTES
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[expect(clippy::needless_pass_by_value, reason = "owned IPC arguments")]
+fn prepare_session(
+    book: Value,
+    saved: Option<Value>,
+    store: tauri::State<'_, Store>,
+) -> Result<Value, String> {
+    validate_book(&book)?;
+    let parsed: reader_core::Book =
+        reader_core::session::book_from_value(book.clone()).map_err(|e| e.to_string())?;
+    let resume =
+        reader_core::session::restore(&parsed, saved.as_ref()).map_err(|e| e.to_string())?;
+    let normal = reader_core::session::plan(&parsed.pieces, &parsed.chapters, false);
+    let notes = reader_core::session::plan(&parsed.pieces, &parsed.chapters, true);
+    let note_plans: std::collections::BTreeMap<_, _> = parsed
+        .notes
+        .iter()
+        .map(|note| {
+            (
+                &note.id,
+                reader_core::session::plan(&note.pieces, &[], false),
+            )
+        })
+        .collect();
+    let result = serde_json::json!({"resume": resume, "normal": normal, "notes": notes, "note_plans": note_plans});
+    *store
+        .book
+        .lock()
+        .map_err(|_| "Book state is unavailable.")? = parsed;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -202,14 +229,23 @@ fn write_json(root: &Path, name: &str, value: &Value) -> Result<(), String> {
     reason = "Tauri command arguments are owned IPC values and managed handles"
 )]
 fn boot(store: tauri::State<'_, Store>) -> Result<Boot, String> {
-    let book = store
-        .book
-        .lock()
-        .map_err(|_| "Book state is unavailable.")?
-        .clone();
+    let book = serde_json::to_value(
+        &*store
+            .book
+            .lock()
+            .map_err(|_| "Book state is unavailable.")?,
+    )
+    .map_err(|e| e.to_string())?;
     let state_path = store.root.join("state.json");
     let state = if state_path.exists() {
-        Some(read_json(&state_path, MAX_STATE_BYTES)?)
+        {
+            let state: Value =
+                reader_core::location::read_json(&state_path).map_err(|e| e.to_string())?;
+            if !state.get("books").is_some_and(Value::is_object) {
+                return Err("Invalid saved books; existing state preserved.".into());
+            }
+            Some(state)
+        }
     } else {
         None
     };
@@ -237,7 +273,7 @@ fn import_book(json: String, store: tauri::State<'_, Store>) -> Result<Value, St
         .lock()
         .map_err(|_| "Book state is unavailable.")?;
     write_json(&store.root, "book.json", &book)?;
-    *current = book.clone();
+    *current = reader_core::session::book_from_value(book.clone()).map_err(|e| e.to_string())?;
     Ok(book)
 }
 
@@ -246,7 +282,12 @@ fn import_book(json: String, store: tauri::State<'_, Store>) -> Result<Value, St
     clippy::needless_pass_by_value,
     reason = "Tauri command arguments are owned IPC values and managed handles"
 )]
-fn save_state(state: Value, store: tauri::State<'_, Store>) -> Result<(), String> {
+fn save_state(
+    mut state: Value,
+    at: usize,
+    book_id: String,
+    store: tauri::State<'_, Store>,
+) -> Result<Value, String> {
     if !state.is_object()
         || serde_json::to_vec(&state)
             .map_err(|_| "Invalid reading state.")?
@@ -255,12 +296,19 @@ fn save_state(state: Value, store: tauri::State<'_, Store>) -> Result<(), String
     {
         return Err("Reading state must be an object within the size limit.".into());
     }
-    // Serialize writes with imports so a single temporary filename has one writer.
-    let _guard = store
+    let guard = store
         .book
         .lock()
         .map_err(|_| "Book state is unavailable.")?;
-    write_json(&store.root, "state.json", &state)
+    let book = &*guard;
+    if book.book_id != book_id {
+        return Err("Book changed before save.".into());
+    }
+    let record = reader_core::session::capture(book, at, &state["books"][&book_id])
+        .map_err(|e| e.to_string())?;
+    state["books"][&book_id] = record.clone();
+    write_json(&store.root, "state.json", &state)?;
+    Ok(record)
 }
 
 #[tauri::command]
@@ -331,7 +379,7 @@ fn initialize() -> Result<Store, String> {
     write_json(&root, "book.json", &book)?;
     Ok(Store {
         root,
-        book: Mutex::new(book),
+        book: Mutex::new(reader_core::session::book_from_value(book).map_err(|e| e.to_string())?),
         self_test,
     })
 }
@@ -361,6 +409,7 @@ fn main() {
         .manage(store)
         .invoke_handler(tauri::generate_handler![
             boot,
+            prepare_session,
             read_theme,
             import_book,
             save_state,

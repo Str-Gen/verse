@@ -5,18 +5,21 @@ const native = window.__TAURI__?.core;
 const storageKey = 'overnight-tauri-browser-v1';
 let book, saved = { books: Object.create(null) }, at = 0, page = 0, pages = 1, pageWidth = 1;
 let mode = 'reading', timer, nextChapter = null, guarded = false, recoveryAt = null;
-let startup = null, notePlayback = null;
+let startup = null, notePlayback = null, policy = null;
 let paceChanges = [], writeQueue = Promise.resolve(), sourceMap, pageForPiece = new Map();
 const blocks = new Map();
 function notice(text = '') { $('notice').textContent = text; }
 function preferences() { return Object.hasOwn(saved.books, book.book_id) ? saved.books[book.book_id] : {}; }
-function speed() { return Math.max(75, Math.min(1000, Number($('speed').value) || 350)); }
+function speed() { return Math.max(60, Math.min(1200, Number($('speed').value) || 350)); }
 function persist() {
   if (!book || guarded) return;
   saved.books[book.book_id] = { ...preferences(), ...position(book, at), speed: speed(), fontSize: Number($('font-size').value), feedback: $('feedback-enabled').checked, followNotes: $('follow-notes').checked, pendingChanges: paceChanges, pendingChapter: chapterAt(book, at)?.id ?? null, history: preferences().history ?? [] };
-  const state = JSON.parse(JSON.stringify(saved));
+  const state = JSON.parse(JSON.stringify(saved)), savedAt = at, bookId = book.book_id;
   writeQueue = writeQueue.catch(() => {}).then(async () => {
-    if (native) await native.invoke('save_state', { state });
+    if (native) {
+      const record = await native.invoke('save_state', { state, at: savedAt, bookId });
+      saved.books[bookId].location = record.location;
+    }
     else localStorage.setItem(storageKey, JSON.stringify({ book, state }));
   }).catch(() => notice('Could not save this session. Check scratch storage before closing.'));
 }
@@ -135,6 +138,7 @@ function returnToText() {
   reflow(); persist();
 }
 function kindAt(index) {
+  if (policy) return policy.normal[index].kind;
   const piece = book.pieces[index], kind = piece.kind ?? blocks.get(piece.block_id)?.kind ?? 'word';
   return ['word','paragraph','heading','list_item','image','ornament','note','unsupported'].includes(kind) ? kind : 'unsupported';
 }
@@ -144,7 +148,13 @@ function enterNote() {
   if (kindAt(at) !== 'note' || !piece.note_id || !$('follow-notes').checked) return false;
   const note = book.notes.find(n => n.id === piece.note_id);
   if (!note?.pieces?.length) { stop(); mode = 'paused'; $('word').textContent = 'Note unavailable'; $('play-status').textContent = 'Space continues after the marker'; return true; }
-  notePlayback = { note, index: 0 }; displayNote(); schedule(); return true;
+  const actions = policy?.note_plans[note.id];
+  const index = actions ? actions.findIndex(a => !['note', 'ornament'].includes(a.kind)) : 0;
+  if (index < 0) return false;
+  notePlayback = { note, index, actions }; displayNote();
+  if (['image', 'unsupported'].includes(actions?.[index].kind)) { stop(); mode = 'paused'; }
+  else schedule();
+  return true;
 }
 function displayNote() { $('word').textContent = notePlayback.note.pieces[notePlayback.index].text; $('play-status').textContent = 'Note · Escape returns to its marker'; }
 function displayCurrent() {
@@ -163,15 +173,22 @@ function boundary(next) {
 function advance() {
   clearTimeout(timer);
   if (notePlayback) {
-    notePlayback.index++;
-    if (notePlayback.index < notePlayback.note.pieces.length) { displayNote(); schedule(); return; }
+    const action = notePlayback.actions?.[notePlayback.index];
+    notePlayback.index = action ? action.next ?? notePlayback.note.pieces.length : notePlayback.index + 1;
+    if (notePlayback.index < notePlayback.note.pieces.length) {
+      displayNote();
+      if (['image', 'unsupported'].includes(notePlayback.actions?.[notePlayback.index].kind)) { stop(); mode = 'paused'; }
+      else schedule();
+      return;
+    }
     notePlayback = null;
   }
-  let next = at + 1;
-  while (next < book.pieces.length && skipAt(next)) next++;
+  const action = policy?.[$('follow-notes').checked ? 'notes' : 'normal'][at];
+  let next = action ? action.next ?? book.pieces.length : at + 1;
+  if (!action) while (next < book.pieces.length && skipAt(next)) next++;
   if (next >= book.pieces.length) { boundary(next); return; }
   const currentChapter = chapterAt(book, at), incoming = chapterAt(book, next);
-  if (currentChapter && incoming?.id !== currentChapter.id) { boundary(next); return; }
+  if (action ? action.chapter_boundary : currentChapter && incoming?.id !== currentChapter.id) { boundary(next); return; }
   at = next; displayCurrent();
   if (enterNote()) return;
   if (['image','unsupported'].includes(kindAt(at))) { stop(); mode = 'paused'; return; }
@@ -180,41 +197,54 @@ function advance() {
 function schedule() {
   mode = 'playing'; $('playback').classList.add('running');
   const piece = notePlayback ? notePlayback.note.pieces[notePlayback.index] : book.pieces[at];
-  const multiplier = /[.!?][”'"’)]?$/.test(piece.text) ? 1.7 : /[,;:]$/.test(piece.text) ? 1.25 : 1;
-  timer = setTimeout(advance, 60000 / speed() * multiplier + (piece.paragraph_end ? 120 : 0));
+  const timing = notePlayback ? notePlayback.actions?.[notePlayback.index] : policy?.normal[at];
+  const multiplier = timing ? timing.multiplier : /[.!?][”'"’)]?$/.test(piece.text) ? 1.7 : /[,;:]$/.test(piece.text) ? 1.25 : 1;
+  timer = setTimeout(advance, 60000 / speed() * multiplier + (timing ? timing.extra_ms : piece.paragraph_end ? 120 : 0));
 }
 function play() {
   if (document.querySelector('dialog[open]')) return;
   if (mode === 'playing') { stop(); mode = 'paused'; $('play-status').textContent = 'Paused · Space to continue · Escape to return'; persist(); return; }
   if (mode === 'reading') {
-    while (at < book.pieces.length - 1 && skipAt(at)) at++;
+    while (at < book.pieces.length && skipAt(at)) {
+      const next = policy?.[$('follow-notes').checked ? 'notes' : 'normal'][at].next;
+      if (policy && next === null || !policy && at === book.pieces.length - 1) { notice('End of book.'); return; }
+      at = policy ? next : at + 1;
+    }
     $('playback').hidden = false; displayCurrent();
     if (enterNote()) return;
     if (['image','unsupported'].includes(kindAt(at))) { mode = 'paused'; return; }
     schedule();
-  } else if (['image','unsupported'].includes(kindAt(at))) advance();
+  } else if (['image','unsupported'].includes(notePlayback ? notePlayback.actions?.[notePlayback.index].kind : kindAt(at))) advance();
   else schedule();
 }
 function continueChapter(store) {
   if (nextChapter === null) return;
   if (store) {
     const prior = speed();
-    if ($('accept-speed').checked && $('pace').value !== 'comfortable') $('speed').value = Math.max(75, Math.min(1000, prior + ($('pace').value === 'fast' ? -25 : 25)));
+    if ($('accept-speed').checked && $('pace').value !== 'comfortable') $('speed').value = Math.max(60, Math.min(1200, prior + ($('pace').value === 'fast' ? -25 : 25)));
     const history = preferences().history ?? [];
     history.push({ date: new Date().toISOString(), chapter: chapterAt(book, at)?.id, pace: $('pace').value, understanding: $('understanding').value, changes: paceChanges, speedBefore: prior, speedAfter: speed() });
     saved.books[book.book_id] = { ...preferences(), history };
   }
   paceChanges = []; const destination = nextChapter; nextChapter = null; $('boundary').close();
   if (destination >= book.pieces.length) { persist(); returnToText(); notice('End of book.'); return; }
-  at = destination; displayCurrent(); schedule();
+  at = destination; displayCurrent();
+  if (enterNote()) return;
+  if (['image', 'unsupported'].includes(kindAt(at))) { mode = 'paused'; return; }
+  schedule();
 }
 function showDetails(title, text, history = false) {
   $('details-title').textContent = title; $('details-body').textContent = text; $('clear-history').hidden = !history; $('details').showModal();
 }
-function loadBook(value) {
+async function loadBook(value) {
   const validated = validateBook(value);
-  stop(); notePlayback = null; book = validated; mode = 'reading'; $('playback').hidden = true; guarded = false;
-  const prefs = preferences(), location = restore(book, prefs.revision ? prefs : null);
+  stop();
+  await writeQueue;
+  const prefsForBook = saved.books[validated.book_id];
+  const prepared = native ? await native.invoke('prepare_session', { book: validated, saved: prefsForBook ?? null }) : null;
+  policy = prepared;
+  notePlayback = null; book = validated; mode = 'reading'; $('playback').hidden = true; guarded = false;
+  const prefs = preferences(), location = prepared?.resume ?? restore(book, prefs.revision ? prefs : null);
   $('speed').value = Number.isFinite(prefs.speed) ? prefs.speed : 350;
   $('font-size').value = Number.isFinite(prefs.fontSize) ? prefs.fontSize : 20;
   $('feedback-enabled').checked = prefs.feedback !== false;
@@ -233,7 +263,7 @@ async function importBook(json) {
   const parsed = validateBook(JSON.parse(json));
   await writeQueue;
   if (native) await native.invoke('import_book', { json });
-  loadBook(parsed);
+  await loadBook(parsed);
 }
 $('open').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file) return;
@@ -265,7 +295,7 @@ $('speed').onchange = () => { $('speed').value = speed(); paceChanges.push({ dat
 $('feedback-enabled').onchange = persist;
 $('follow-notes').onchange = persist;
 $('chapters').onchange = () => { returnToText(); choose(Number($('chapters').value)); reflow(); };
-$('pace').onchange = () => { const delta = $('pace').value === 'fast' ? -25 : 25; $('suggestion').hidden = $('pace').value === 'comfortable'; $('accept-speed').checked = false; $('suggestion-text').textContent = `Use ${Math.max(75, Math.min(1000, speed() + delta))} WPM for the next chapter`; };
+$('pace').onchange = () => { const delta = $('pace').value === 'fast' ? -25 : 25; $('suggestion').hidden = $('pace').value === 'comfortable'; $('accept-speed').checked = false; $('suggestion-text').textContent = `Use ${Math.max(60, Math.min(1200, speed() + delta))} WPM for the next chapter`; };
 $('skip-feedback').onclick = () => continueChapter(false); $('save-feedback').onclick = () => continueChapter(true);
 $('boundary').addEventListener('close', () => { if (nextChapter !== null) { nextChapter = null; returnToText(); } });
 $('history-button').onclick = () => showDetails('This book’s feedback', (preferences().history ?? []).map(h => `${h.date}\nChapter: ${h.chapter}\nPace: ${h.pace}; followed: ${h.understanding}\nSpeed: ${h.speedBefore} → ${h.speedAfter} WPM\nDuring chapter: ${h.changes.map(c => c.wpm).join(', ') || 'no changes'}`).join('\n\n') || 'No chapter feedback saved.', true);
@@ -302,7 +332,7 @@ async function boot() {
   }
   saved = { books: Object.assign(Object.create(null), result.state?.books ?? {}) };
   startup = JSON.parse(JSON.stringify(saved));
-  loadBook(result.book);
+  await loadBook(result.book);
   if (result.self_test || new URLSearchParams(location.search).has('self-test')) {
     const { runTests } = await import(result.theme_test ? './theme-test.js' : './self-test.js');
     const report = await runTests(reader);

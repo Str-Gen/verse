@@ -22,6 +22,7 @@ pub mod ffi {
         #[qproperty(i32, position)]
         #[qproperty(i32, end_position)]
         #[qproperty(i32, speed)]
+        #[qproperty(i32, delay_ms)]
         #[qproperty(bool, playing)]
         type Reader = super::ReaderRust;
 
@@ -62,6 +63,7 @@ pub struct ReaderRust {
     position: i32,
     end_position: i32,
     speed: i32,
+    delay_ms: i32,
     playing: bool,
     model: Option<Model>,
     state_path: PathBuf,
@@ -161,6 +163,7 @@ impl ffi::Reader {
                 model.current_utf16_end(),
                 model.speed,
                 model.playing,
+                model.delay_ms(),
             );
             let recovery = model.recovery_description().unwrap_or_default();
             let recovery_needed = model.needs_recovery();
@@ -174,6 +177,8 @@ impl ffi::Reader {
                 .set_end_position(i32::try_from(values.3).unwrap_or(i32::MAX));
             self.as_mut()
                 .set_speed(i32::try_from(values.4).unwrap_or(350));
+            self.as_mut()
+                .set_delay_ms(i32::try_from(values.6).unwrap_or(1000));
             self.set_playing(values.5);
         }
     }

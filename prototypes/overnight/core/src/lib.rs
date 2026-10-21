@@ -9,6 +9,7 @@ pub mod location;
 mod normalize;
 mod ornaments;
 pub mod playback;
+pub mod session;
 
 pub use archive::Limits;
 pub use normalize::{import_epub, inspect_rbook, verify_sources};
@@ -28,8 +29,11 @@ pub struct Run {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note_id: Option<String>,
     pub text: String,
+    #[serde(default)]
     pub emphasis: bool,
+    #[serde(default)]
     pub strong: bool,
+    #[serde(default)]
     pub sources: Vec<SourceSpan>,
 }
 
@@ -58,10 +62,14 @@ pub struct Document {
 pub struct Piece {
     pub id: String,
     pub text: String,
+    #[serde(default)]
     pub word_id: String,
+    #[serde(default)]
     pub sources: Vec<SourceSpan>,
     pub block_id: String,
+    #[serde(default)]
     pub paragraph_end: bool,
+    #[serde(default = "word_kind")]
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note_id: Option<String>,
@@ -80,6 +88,7 @@ pub struct Chapter {
 pub struct Note {
     pub id: String,
     pub blocks: Vec<Block>,
+    #[serde(default)]
     pub pieces: Vec<Piece>,
 }
 
@@ -97,6 +106,7 @@ pub struct ImageEvidence {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Resource {
     pub id: String,
+    #[serde(default)]
     pub media_type: String,
     /// Bounded embedded raster data. SVG is never embedded as executable content.
     pub data_url: String,
@@ -108,13 +118,19 @@ pub struct Book {
     pub book_id: String,
     pub revision: String,
     pub title: String,
+    #[serde(default)]
     pub publisher_identifiers: Vec<String>,
     pub documents: Vec<Document>,
     pub pieces: Vec<Piece>,
+    #[serde(default)]
     pub chapters: Vec<Chapter>,
+    #[serde(default)]
     pub notes: Vec<Note>,
+    #[serde(default)]
     pub resources: Vec<Resource>,
+    #[serde(default)]
     pub image_evidence: Vec<ImageEvidence>,
+    #[serde(default)]
     pub diagnostics: Vec<String>,
 }
 
@@ -141,3 +157,7 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+fn word_kind() -> String {
+    "word".into()
+}

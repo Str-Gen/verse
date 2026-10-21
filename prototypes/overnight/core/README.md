@@ -25,7 +25,7 @@ From this directory:
 
 ## Integration
 
-The crate exposes `import_epub(path, local_id, options) -> Result<Book>`, `verify_sources`, `inspect_rbook`, `location`, and `playback`. Imports either return a complete normalized book or an error; they do not replace caller state. The CLI writes JSON only after import succeeds.
+The crate exposes `import_epub(path, local_id, options) -> Result<Book>`, `verify_sources`, `inspect_rbook`, `location`, `playback`, and `session`. Imports either return a complete normalized book or an error; they do not replace caller state. The CLI writes JSON only after import succeeds.
 
 `Book` retains document blocks and styled runs for conventional reading, plus source-linked pieces for playback. A word can cross several inline text nodes. Runs preserve decoded whitespace; reader rendering uses normal whitespace collapsing. Unicode word segmentation happens after joining inline runs. Adjacent lexical segments joined by hyphens/apostrophes form one lexical unit. Punctuation and non-word symbols remain attached to their surrounding display passage. This is Unicode segmentation with a compound policy, not morphological analysis.
 
@@ -45,7 +45,13 @@ Chapter IDs are resolved local destinations including fragments, not spine indic
 
 Unchanged revisions restore exact source spans, including inline nodes. Changing approved display splitting can map the same source scalar to its containing display piece. Changed revisions never move automatically. A unique exact context of at least eight displayed words and 32 scalars produces a passage proposal. Otherwise matching stable chapter destination and title produces a chapter-start proposal. Repeated/no matches preserve the old saved location. These thresholds are conservative prototype heuristics, not measured semantic confidence. A changed splitting preference may reduce passage matching to chapter recovery.
 
-State JSON is bounded to 1 MiB, written by atomic replacement, and created with mode 0600 on Unix. The store assumes one writer per publication. It does not implement cross-process locking or persist an in-progress note excursion, playback clock, feedback history or per-book WPM. Those frontend/application features must use their own isolated state or extend this module.
+Both native frontends link this crate. `session` supplies playback transitions, interruption kinds, punctuation/paragraph delays, the 60–1200 WPM range, resume decisions, and source-anchor capture. Qt calls it directly. Tauri obtains compiled action tables over IPC when opening a book and asks Rust to capture the current anchor when saving. Timers, rendering, confirmation dialogs, and feedback controls remain in each shell. The standalone browser preview still uses its JavaScript compatibility model; it is not evidence for native policy parity.
+
+Native records retain per-book preferences and store a core `SavedLocation` under `location`. Legacy frontend records migrate through a unique exact source match in an unchanged edition. Old short contexts never qualify for changed-edition passage recovery. A legacy chapter fallback requires both the saved stable ID and title; old Tauri records without a title stay unresolved. Recovery proposals do not write state, and reopening remains stopped.
+
+Both shells use the shared bounded JSON writer. State is capped at 1 MiB, while Tauri's book cache retains its separate 64 MiB limit. Writes use a unique temporary sibling, sync file contents, and atomically replace the destination. Unix files are created with mode 0600 and new parent directories with mode 0700. Failed writes clean up their temporary file. Malformed state is reported rather than replaced with defaults.
+
+State directories remain separate. There is no cross-process locking, directory fsync guarantee, or persisted playback clock/note excursion. Simultaneous-instance and power-loss recovery validation remain open. Feedback history is preserved as frontend preference data; its UI and semantics are not implemented by the core.
 
 ## CSS boundary
 

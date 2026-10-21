@@ -47,11 +47,11 @@ export async function runTests(reader) {
     check('next page saves its first source piece', reader.snapshot.page === oldPage + 1 && reader.snapshot.pageForPiece.get(reader.snapshot.at) === reader.snapshot.page);
     reader.turn(-1); check('previous page returns', reader.snapshot.page === oldPage);
     $('speed').value = '425'; $('speed').dispatchEvent(new Event('change')); reader.choose(joined); await reader.flush();
-    reader.loadBook(original);
+    await reader.loadBook(original);
     check('same book restores exact source and saved speed stopped', reader.snapshot.at === joined && reader.snapshot.speed === 425 && reader.snapshot.mode === 'reading');
     const other = structuredClone(original); other.book_id = 'another-synthetic-book';
-    reader.loadBook(other); check('another book starts at default speed', reader.snapshot.speed === 350 && reader.snapshot.at === 0);
-    reader.loadBook(original); check('switching books restores independent position and speed', reader.snapshot.at === joined && reader.snapshot.speed === 425);
+    await reader.loadBook(other); check('another book starts at default speed', reader.snapshot.speed === 350 && reader.snapshot.at === 0);
+    await reader.loadBook(original); check('switching books restores independent position and speed', reader.snapshot.at === joined && reader.snapshot.speed === 425);
     try { await reader.importBook('{"schema_version":99}'); } catch { /* Expected invalid input. */ }
     check('invalid import retains current book', reader.snapshot.book.book_id === original.book_id && reader.snapshot.at === joined);
     const image = original.pieces.findIndex(p => p.kind === 'image');
@@ -76,14 +76,14 @@ export async function runTests(reader) {
     reader.choose(joined); const location = position(original, joined);
     const edited = structuredClone(original); edited.revision = 'synthetic-v2';
     check('changed revision requires unique passage confirmation', restore(edited, location).kind === 'passage');
-    reader.loadBook(edited); check('recovery guards saved state until confirmation', $('recovery').open && reader.snapshot.guarded && reader.snapshot.state.books[original.book_id].revision === original.revision);
+    await reader.loadBook(edited); check('recovery guards saved state until confirmation', $('recovery').open && reader.snapshot.guarded && reader.snapshot.state.books[original.book_id].revision === original.revision);
     $('cancel-recovery').click(); await reader.flush();
     check('declining recovery preserves old revision', reader.snapshot.state.books[original.book_id].revision === original.revision);
-    reader.loadBook(edited); $('accept-recovery').click(); check('confirmed passage recovery uses source piece', reader.snapshot.at === joined && !reader.snapshot.guarded);
+    await reader.loadBook(edited); $('accept-recovery').click(); check('confirmed passage recovery uses source piece', reader.snapshot.at === joined && !reader.snapshot.guarded);
     check('unresolved recovery never guesses an index', restore(edited, { ...location, context: 'missing context', chapter: 'missing-chapter' }).kind === 'unresolved');
     const malicious = structuredClone(original); malicious.title = '<script>window.publisherRan=true</script>'; malicious.documents[0].blocks[0].runs[0].text = '<script>bad()</script>'; malicious.documents[0].blocks[0].runs[0].sources[0].length = Array.from(malicious.documents[0].blocks[0].runs[0].text).length;
     malicious.documents[0].blocks.find(b => b.kind === 'image').resource = 'https://example.invalid/tracker.png'; malicious.book_id = 'security-synthetic';
-    reader.loadBook(malicious);
+    await reader.loadBook(malicious);
     check('publisher markup remains text and external image URL is not rendered', !window.publisherRan && !$('book').querySelector('script') && !$('book').querySelector('img[src^="https:"]'));
     const core = validateBook(await (await fetch('core-demo.json')).json());
     await reader.importBook(JSON.stringify(core));
@@ -135,7 +135,7 @@ export async function runTests(reader) {
     reader.returnToText();
     check('independent source return remains at last displayed word', reader.snapshot.at === astral + 1 && reader.snapshot.page === reader.snapshot.pageForPiece.get(astral + 1));
     $('follow-notes').checked = false;
-    reader.loadBook(original); if ($('recovery').open) $('accept-recovery').click(); reader.choose(joined); $('speed').value = '425'; $('speed').dispatchEvent(new Event('change')); reader.returnToText(); await reader.flush();
+    await reader.loadBook(original); if ($('recovery').open) $('accept-recovery').click(); reader.choose(joined); $('speed').value = '425'; $('speed').dispatchEvent(new Event('change')); reader.returnToText(); await reader.flush();
   } catch (error) { errors.push(`Exception: ${error.name}: ${error.message}`); }
   return { passed: errors.length === 0, engine: navigator.userAgent, checks, errors };
 }

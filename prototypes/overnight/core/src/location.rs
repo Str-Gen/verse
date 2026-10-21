@@ -324,7 +324,8 @@ fn source_range_covered(book: &Book, word_id: &str, wanted: &SourceSpan) -> bool
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
-fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, LocationError> {
+/// Reads bounded local JSON without treating malformed state as missing.
+pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, LocationError> {
     if fs::metadata(path)?.len() > MAX_STATE_BYTES {
         return Err(LocationError::InvalidLocation("state exceeds 1 MiB".into()));
     }
@@ -337,10 +338,31 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, LocationE
     }
     Ok(serde_json::from_slice(&bytes)?)
 }
-fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), LocationError> {
+/// Atomically replaces bounded private JSON after syncing its contents.
+pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), LocationError> {
+    write_json_with_limit(path, value, MAX_STATE_BYTES)
+}
+/// Uses the same atomic writer for larger bounded book caches.
+pub fn write_json_with_limit<T: Serialize>(
+    path: &Path,
+    value: &T,
+    limit: u64,
+) -> Result<(), LocationError> {
     let bytes = serde_json::to_vec(value)?;
-    if bytes.len() as u64 > MAX_STATE_BYTES {
-        return Err(LocationError::InvalidLocation("state exceeds 1 MiB".into()));
+    if bytes.len() as u64 > limit {
+        return Err(LocationError::InvalidLocation(
+            "JSON exceeds size limit".into(),
+        ));
+    }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(parent)?;
     }
     let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
     let mut options = fs::OpenOptions::new();
@@ -351,8 +373,11 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), LocationError>
         options.mode(0o600);
     }
     let mut file = options.open(&temp)?;
-    file.write_all(&bytes)?;
-    file.sync_all()?;
+    if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
+        drop(file);
+        let _ = fs::remove_file(&temp);
+        return Err(error.into());
+    }
     drop(file);
     if let Err(error) = fs::rename(&temp, path) {
         let _ = fs::remove_file(temp);

@@ -8,6 +8,7 @@ build = "build.rs"
 [workspace]
 
 [dependencies]
+reader-core = { path = "../core" }
 cxx = "1.0"
 cxx-qt = "=0.10.0"
 cxx-qt-lib = { version = "=0.10.0", features = ["qt_gui", "qt_qml"] }

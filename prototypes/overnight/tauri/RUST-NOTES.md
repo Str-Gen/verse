@@ -1,5 +1,9 @@
 # Rust adapter evidence
 
+The native adapter now links `reader-core`. `prepare_session` validates and adapts the book, resolves the saved anchor in Rust, and supplies playback action tables. `save_state` captures the source anchor from the Rust book rather than trusting a JavaScript-generated location. The shared writer syncs file contents and replaces a unique temporary sibling. State is capped at 1 MiB; the book cache remains capped at 64 MiB. Legacy short-context recovery is no longer used by the native app. The standalone browser preview retains its JavaScript compatibility model.
+
+The remaining notes below record the original overnight implementation and measurements.
+
 The standalone workspace pins Rust 1.99.0. Cargo.lock resolved Tauri 2.12.4 and Wry 0.57.0. The adapter consumes normalized version-1 JSON and performs no EPUB parsing. Four commands expose boot, normalized-book import, state save, and synthetic self-test reporting. No generic filesystem command is exposed.
 
 Book input is capped at 64 MiB and state at 8 MiB. Rust checks collection shapes, unique document/block/piece/chapter identities, source-span integers and document references, run scalar lengths, piece block references, and chapter endpoints. Extra fields remain available to the frontend. This is structural validation, not proof against original EPUB text. Chapter ordering, note semantics and resource support remain frontend/core responsibilities.

@@ -92,7 +92,7 @@ ApplicationWindow {
     Timer { id: reflow; interval: 80; onTriggered: window.paginate() }
     Timer {
         id: playbackTimer
-        interval: Math.round(60000 / Math.max(60, reader.speed))
+        interval: Math.max(1, reader.delay_ms)
         running: reader.playing
         repeat: true
         onTriggered: reader.tick()

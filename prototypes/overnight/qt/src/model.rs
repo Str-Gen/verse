@@ -5,111 +5,17 @@ use std::{
     path::Path,
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-struct Source {
-    document: String,
-    node: String,
-    offset: usize,
-    length: usize,
-}
-#[derive(Deserialize)]
-struct Run {
-    note_id: Option<String>,
-    text: String,
-    #[serde(default)]
-    emphasis: bool,
-    #[serde(default)]
-    strong: bool,
-    #[serde(default)]
-    sources: Vec<Source>,
-}
-#[derive(Deserialize)]
-struct Block {
-    id: String,
-    kind: String,
-    #[serde(default)]
-    runs: Vec<Run>,
-    level: Option<u8>,
-    alt: Option<String>,
-    resource: Option<String>,
-}
-#[derive(Deserialize)]
-struct Document {
-    blocks: Vec<Block>,
-}
-#[derive(Deserialize)]
-struct Piece {
-    id: String,
-    text: String,
-    #[serde(default = "word_kind")]
-    kind: String,
-    block_id: String,
-    #[serde(default)]
-    sources: Vec<Source>,
-}
-fn word_kind() -> String {
-    "word".into()
-}
-#[derive(Deserialize)]
-struct Chapter {
-    #[serde(default)]
-    id: String,
-    #[serde(default)]
-    title: String,
-    start_piece: String,
-}
-#[derive(Deserialize)]
-struct Note {
-    id: String,
-    blocks: Vec<Block>,
-}
-#[derive(Deserialize)]
-struct Resource {
-    id: String,
-    data_url: String,
-}
-#[derive(Deserialize)]
-struct Book {
-    schema_version: u32,
-    book_id: String,
-    revision: String,
-    title: String,
-    documents: Vec<Document>,
-    pieces: Vec<Piece>,
-    #[serde(default)]
-    chapters: Vec<Chapter>,
-    #[serde(default)]
-    notes: Vec<Note>,
-    #[serde(default)]
-    resources: Vec<Resource>,
-}
-#[derive(Serialize, Deserialize)]
-struct Saved {
-    revision: String,
-    sources: Vec<Source>,
-    speed: u32,
-    #[serde(default)]
-    context: Option<SavedContext>,
-    #[serde(default)]
-    chapter: Option<SavedChapter>,
-}
-#[derive(Serialize, Deserialize)]
-struct SavedContext {
-    pieces: Vec<(String, String)>,
-    selected_offset: usize,
-}
-#[derive(Serialize, Deserialize)]
-struct SavedChapter {
-    id: String,
-    title: String,
-}
+use reader_core::Book;
+use reader_core::{location, session};
+use serde_json::{Value, json};
+
 struct Recovery {
     position: usize,
     description: String,
 }
 #[derive(Default, Serialize, Deserialize)]
 struct SavedBooks {
-    books: BTreeMap<String, Saved>,
+    books: BTreeMap<String, Value>,
 }
 
 pub struct Model {
@@ -135,8 +41,10 @@ impl Model {
     }
 
     fn from_json(json: &str, directory: &Path) -> Result<Self, String> {
-        let book: Book =
-            serde_json::from_str(json).map_err(|e| format!("Invalid book JSON: {e}"))?;
+        let book: Book = session::book_from_value(
+            serde_json::from_str(json).map_err(|e| format!("Invalid book JSON: {e}"))?,
+        )
+        .map_err(|e| format!("Invalid book JSON: {e}"))?;
         if book.schema_version != 1 {
             return Err("Only book JSON schema version 1 is supported".into());
         }
@@ -217,19 +125,27 @@ impl Model {
     }
 
     pub fn start(&mut self) {
-        if matches!(self.kind(), "image" | "unsupported") {
+        if matches!(
+            session::kind(&self.book.pieces[self.current]),
+            session::Kind::Image | session::Kind::Unsupported
+        ) {
             if self.inspected_stop != Some(self.current) {
                 self.stop_for_inspection();
                 return;
             }
-            if !self.advance() {
+            self.playing = true;
+            self.step();
+            if !self.playing {
                 return;
             }
         }
         if !self.skip_manual() {
             return;
         }
-        if matches!(self.kind(), "image" | "unsupported") {
+        if matches!(
+            session::kind(&self.book.pieces[self.current]),
+            session::Kind::Image | session::Kind::Unsupported
+        ) {
             self.stop_for_inspection();
         } else {
             self.playing = true;
@@ -253,48 +169,39 @@ impl Model {
         if !self.playing {
             return;
         }
-        let last_displayed = self.current;
-        if !self.advance() {
+        let Some(action) = session::playback(&self.book, self.current, false) else {
             return;
-        }
-        if !self.skip_manual() {
-            self.current = last_displayed;
+        };
+        let Some(next) = action.next else {
+            self.playing = false;
+            self.status = "End of book".into();
             return;
-        }
-        if self
-            .book
-            .chapters
-            .iter()
-            .skip(1)
-            .any(|c| c.start_piece == self.book.pieces[self.current].id)
-        {
+        };
+        self.current = next;
+        if action.chapter_boundary {
             self.playing = false;
             self.status = "Chapter boundary. Press play to continue.".into();
-        } else if matches!(self.kind(), "image" | "unsupported") {
+        } else if !matches!(
+            session::kind(&self.book.pieces[self.current]),
+            session::Kind::Word
+        ) {
             self.stop_for_inspection();
         }
     }
 
-    fn kind(&self) -> &str {
-        &self.book.pieces[self.current].kind
+    pub fn delay_ms(&self) -> u32 {
+        session::delay_ms(&self.book, self.current, self.speed)
     }
-    fn advance(&mut self) -> bool {
-        if self.current + 1 == self.book.pieces.len() {
+
+    fn skip_manual(&mut self) -> bool {
+        if let Some(at) = session::start(&self.book, self.current, false) {
+            self.current = at;
+            true
+        } else {
             self.playing = false;
             self.status = "End of book".into();
             false
-        } else {
-            self.current += 1;
-            true
         }
-    }
-    fn skip_manual(&mut self) -> bool {
-        while matches!(self.kind(), "note" | "ornament") {
-            if !self.advance() {
-                return false;
-            }
-        }
-        true
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), String> {
@@ -308,144 +215,17 @@ impl Model {
         }
         let path = path.as_ref();
         let mut saved = read_saved(path)?;
+        let mut preferences = saved
+            .books
+            .get(&self.book.book_id)
+            .cloned()
+            .unwrap_or(json!({}));
+        preferences["speed"] = json!(self.speed);
         saved.books.insert(
             self.book.book_id.clone(),
-            Saved {
-                revision: self.book.revision.clone(),
-                sources: self.book.pieces[self.current].sources.clone(),
-                speed: self.speed.clamp(60, 1200),
-                context: Some(self.saved_context()),
-                chapter: self.saved_chapter(),
-            },
+            session::capture(&self.book, self.current, &preferences).map_err(|e| e.to_string())?,
         );
-        let json = serde_json::to_vec_pretty(&saved).map_err(|e| e.to_string())?;
-        if let Some(parent) = path.parent() {
-            let mut directory = fs::DirBuilder::new();
-            directory.recursive(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::DirBuilderExt;
-                directory.mode(0o700);
-            }
-            directory.create(parent).map_err(|e| e.to_string())?;
-        }
-        let temporary = path.with_extension("pending");
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options
-            .open(&temporary)
-            .map_err(|e| format!("Cannot open resume state: {e}"))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(fs::Permissions::from_mode(0o600))
-                .map_err(|e| e.to_string())?;
-        }
-        use std::io::Write;
-        file.write_all(&json)
-            .map_err(|e| format!("Cannot write resume state: {e}"))?;
-        file.sync_all()
-            .map_err(|e| format!("Cannot flush resume state: {e}"))?;
-        drop(file);
-        fs::rename(temporary, path).map_err(|e| format!("Cannot commit resume state: {e}"))
-    }
-
-    fn saved_context(&self) -> SavedContext {
-        let start = self.current.saturating_sub(3);
-        let end = (self.current + 4).min(self.book.pieces.len());
-        SavedContext {
-            pieces: self.book.pieces[start..end]
-                .iter()
-                .map(|piece| (piece.text.clone(), piece.kind.clone()))
-                .collect(),
-            selected_offset: self.current - start,
-        }
-    }
-
-    fn saved_chapter(&self) -> Option<SavedChapter> {
-        let positions: BTreeMap<_, _> = self
-            .book
-            .pieces
-            .iter()
-            .enumerate()
-            .map(|(index, piece)| (piece.id.as_str(), index))
-            .collect();
-        self.book
-            .chapters
-            .iter()
-            .filter_map(|chapter| {
-                positions
-                    .get(chapter.start_piece.as_str())
-                    .map(|index| (*index, chapter))
-            })
-            .filter(|(index, _)| *index <= self.current)
-            .max_by_key(|(index, _)| *index)
-            .map(|(_, chapter)| SavedChapter {
-                id: chapter.id.clone(),
-                title: chapter.title.clone(),
-            })
-    }
-
-    fn find_recovery(&self, saved: &Saved) -> Option<Recovery> {
-        if let Some(context) = &saved.context
-            && context.pieces.len() >= 3
-            && context.selected_offset < context.pieces.len()
-        {
-            let mut matches = self
-                .book
-                .pieces
-                .windows(context.pieces.len())
-                .enumerate()
-                .filter(|(_, window)| {
-                    window
-                        .iter()
-                        .zip(&context.pieces)
-                        .all(|(piece, (text, kind))| piece.text == *text && piece.kind == *kind)
-                });
-            if let Some((start, _)) = matches.next()
-                && matches.next().is_none()
-            {
-                return Some(Recovery { position: start + context.selected_offset,
-                            description: "A unique matching passage was found in this edition. Confirm to resume there, stopped.".into() });
-            }
-        }
-        let saved_chapter = saved.chapter.as_ref()?;
-        let exact: Vec<_> = self
-            .book
-            .chapters
-            .iter()
-            .filter(|chapter| {
-                !saved_chapter.id.is_empty()
-                    && chapter.id == saved_chapter.id
-                    && (saved_chapter.title.is_empty() || chapter.title == saved_chapter.title)
-            })
-            .collect();
-        let titles: Vec<_> = self
-            .book
-            .chapters
-            .iter()
-            .filter(|chapter| {
-                !saved_chapter.title.is_empty() && chapter.title == saved_chapter.title
-            })
-            .collect();
-        let chapter = match exact.as_slice() {
-            [chapter] => *chapter,
-            _ => match titles.as_slice() {
-                [chapter] => *chapter,
-                _ => return None,
-            },
-        };
-        let position = self
-            .book
-            .pieces
-            .iter()
-            .position(|piece| piece.id == chapter.start_piece)?;
-        Some(Recovery { position, description: "The saved chapter was identified, but the passage could not be matched uniquely. Confirm to resume at that chapter's start, stopped.".into() })
+        location::write_json(path, &saved).map_err(|e| e.to_string())
     }
 
     pub fn recovery_description(&self) -> Option<String> {
@@ -500,45 +280,42 @@ impl Model {
         let Some(state) = saved.books.get(&self.book.book_id) else {
             return Ok(());
         };
-        self.speed = state.speed.clamp(60, 1200);
-        if state.revision != self.book.revision {
-            self.preserve_saved = true;
-            self.recovery = self.find_recovery(state);
-            self.status = if self.recovery.is_some() {
-                "Book revision changed. Recovery is available for confirmation; original state preserved."
-            } else { "Book revision changed. No confident recovery found; original state preserved." }.into();
-            return Err(self.status.clone());
-        }
-        let matches: Vec<_> = self
-            .book
-            .pieces
-            .iter()
-            .enumerate()
-            .filter(|(_, piece)| !state.sources.is_empty() && piece.sources == state.sources)
-            .map(|(index, _)| index)
-            .collect();
-        if let [index] = matches.as_slice() {
-            self.current = *index;
+        self.preserve_saved = true;
+        self.speed = session::speed(
+            state
+                .get("speed")
+                .and_then(Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(350),
+        );
+        let resume = session::restore(&self.book, Some(state)).map_err(|e| e.to_string())?;
+        if resume.kind == "exact" {
+            self.current = resume.at;
+            self.preserve_saved = false;
             self.status = "Restored passage, stopped".into();
-            Ok(())
-        } else {
-            self.preserve_saved = true;
-            self.status =
-                "Saved source location is missing or ambiguous; original state preserved".into();
-            Err(self.status.clone())
+            return Ok(());
         }
+        self.preserve_saved = true;
+        self.recovery = match resume.kind.as_str() {
+            "passage" => Some(Recovery { position: resume.at, description: "A unique matching passage was found in this edition. Confirm to resume there, stopped.".into() }),
+            "chapter" => Some(Recovery { position: resume.at, description: "Confirm to resume at the saved chapter's start, stopped.".into() }),
+            _ => None,
+        };
+        self.status = "Saved location requires confirmation; original state preserved".into();
+        Err(self.status.clone())
     }
 }
 
 fn read_saved(path: &Path) -> Result<SavedBooks, String> {
-    match fs::read(path) {
-        Ok(bytes) => {
-            serde_json::from_slice(&bytes).map_err(|e| format!("Invalid saved state: {e}"))
+    match location::read_json(path) {
+        Ok(saved) => Ok(saved),
+        Err(location::LocationError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(SavedBooks::default())
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SavedBooks::default()),
         Err(e) => Err(format!("Cannot read saved state: {e}")),
     }
 }
+
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -889,7 +666,10 @@ mod tests {
             }
             model.step();
         }
-        assert_eq!(model.kind(), "image");
+        assert_eq!(
+            session::kind(&model.book.pieces[model.current]),
+            session::Kind::Image
+        );
         model.start();
         for _ in 0..2000 {
             if !model.playing {
@@ -1105,11 +885,7 @@ mod tests {
         revised.save(&path)?;
         let saved = read_saved(&path)?;
         assert_eq!(
-            saved
-                .books
-                .get(revised.book_id())
-                .ok_or("saved book")?
-                .revision,
+            saved.books.get(revised.book_id()).ok_or("saved book")?["revision"],
             "second"
         );
         #[cfg(unix)]
@@ -1179,6 +955,7 @@ mod tests {
         let record = legacy["books"][old.book_id()]
             .as_object_mut()
             .ok_or("record")?;
+        record.remove("location");
         record.remove("context");
         record.remove("chapter");
         fs::write(&path, serde_json::to_vec(&legacy)?)?;
