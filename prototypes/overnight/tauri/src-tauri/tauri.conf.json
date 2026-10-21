@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Quiet reader prototype",
+  "productName": "Verse",
   "version": "0.1.0",
   "identifier": "local.overnight.quietreader",
   "build": {

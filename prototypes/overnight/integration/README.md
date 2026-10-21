@@ -1,6 +1,22 @@
-# Integrated overnight prototypes
+# Verse development builds
 
-From the repository root:
+From the repository root, build the current applications and expose them on PATH:
+
+```sh
+./build.sh
+verse book.epub
+verse-qt book.epub
+verse-tauri book.epub
+verse --demo
+verse --book-json export.json
+verse-tauri --state-dir /tmp/verse-trial book.epub
+```
+
+`verse` selects Qt. The build defaults to release and creates symlinks in `~/.local/bin` to checkout-local launchers. Those launchers use the already built core importer and frontend; they never build on launch. Relative input paths are resolved from the caller's directory. Paths containing spaces work when quoted. With no input, the frontend reopens its last book. The EPUB cache, canonical-path identities, and frontend state locations are shared with the older development launchers, so this does not create a separate reading library.
+
+Build options: `--debug`, `--frontend qt|tauri|both`, `--name NAME`, `--bin-dir PATH`, and `--no-link`. The build refuses to overwrite an unrelated command. It prints a PATH reminder if the chosen directory is absent from PATH. After moving the checkout, remove the old command symlinks and rebuild. To remove the commands, remove the symlinks from the chosen command directory; the build artifacts and reading state remain in place.
+
+For the existing build-and-run development workflow:
 
 ```sh
 ./prototypes/overnight/qt/run.sh --demo
@@ -9,7 +25,7 @@ From the repository root:
 
 Both commands build the same pinned Rust core, export its synthetic EPUB, build the selected frontend, and launch it. Use `--epub /absolute/path/book.epub` to import a local DRM-free EPUB or `--book-json /absolute/path/export.json` to open an existing export. Input paths are resolved before changing directories. With no arguments the frontend retains its own last-book behavior. Run only one instance per frontend storage directory.
 
-`export.sh` exposes the core CLI unchanged. `launch.sh` owns import and the persistent canonical-path identity store in `.local/identities`. Exports live under `.local` with a filename derived from the EPUB path. Replacing the bytes at that path retains book identity while changing revision. The two renderer projects remain separate Cargo projects; there is one EPUB importer and reusable Rust library in `../core`. This prototype shares content through a versioned JSON process boundary. Frontend persistence, playback and recovery policy still need consolidation into the Rust application layer.
+`export.sh` exposes the core CLI unchanged. `launch.sh` owns import and the persistent canonical-path identity store in `.local/identities`. Exports live under `.local` with a filename derived from the EPUB path. Replacing the bytes at that path retains book identity while changing revision. The two renderer projects remain separate Cargo projects; there is one EPUB importer and reusable Rust library in `../core`. Both native frontends link the shared Rust application policy for playback transitions, recovery, and source-anchor persistence. EPUB import still uses the versioned JSON process boundary.
 
 ## Verification
 
@@ -25,7 +41,7 @@ The native script requires the installed Wayland session, Qt 6 and WebKitGTK. It
 
 `check_core.py` runs the independent worker's oracle through `validation_adapter.py`. The adapter audits source spans against original XML, translates node spelling, represents inline note references as the oracle's separate note blocks, and omits explicitly classified ornament events because the oracle expects them absent from playback. It does not alter scalar offsets, word text, chapter boundaries or image classification. The unchanged SVG fixture fails its rendering expectation because the core emits explicit unsupported placeholders. A separate PNG fixture passes the same image/ornament expectations. The wrapper succeeds only with that exact known failure and a passing raster case. Raw results retain the failure.
 
-`check_recovery.py` calls the actual CLI/store against independent editions and checks that proposals never modify saved state. The core's eight-word confidence threshold sends the short unique fixture to chapter confirmation. Qt and Tauri currently use shorter exact contexts. This is an open policy difference, not a shared-recovery completion claim.
+`check_recovery.py` calls the actual CLI/store against independent editions and checks that proposals never modify saved state. The core's eight-word confidence threshold sends the short unique fixture to chapter confirmation. Both native frontends now use this same conservative recovery policy. The standalone browser preview retains its JavaScript compatibility model.
 
 The independent worker's generic ten-action trace protocol has no completed Qt/Tauri driver. Its independent content fixtures do run through both native renderers with source-selection and return assertions. Browser tests, mobile ports, broad publication compatibility and user visual acceptance are not implied by native tests.
 

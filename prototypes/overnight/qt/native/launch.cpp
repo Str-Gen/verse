@@ -20,6 +20,7 @@ int run() {
         std::fprintf(stderr, "READER_PLATFORM=%s\n", QGuiApplication::platformName().toUtf8().constData());
     app.setOrganizationName("OvernightPrototype");
     app.setApplicationName("QtReader");
+    app.setApplicationDisplayName("Verse");
     QQuickStyle::setStyle("Basic");
     Theme theme;
     Support support;

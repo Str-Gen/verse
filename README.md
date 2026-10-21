@@ -1,3 +1,21 @@
+# Verse
+
+A reading and learning app with Qt and Tauri frontends, built on a shared Rust core.
+
+```sh
+./build.sh                    # build both release versions and create PATH commands
+verse "path/to/book.epub"      # Qt
+verse-tauri "path/to/book.epub" # Tauri
+```
+
+The build links `verse`, `verse-qt`, and `verse-tauri` into `~/.local/bin`. Once that directory is on PATH, these commands work from any directory and run the existing build without invoking Cargo. Binaries and launchers stay in this checkout; no system package or desktop entry is installed. Rebuilding refreshes the commands.
+
+Use `./build.sh --debug` for debug builds, `--frontend qt` or `--frontend tauri` to build one frontend, and `--bin-dir PATH` to choose the command directory. `--name NAME` changes the base command name. `--no-link` builds without adding commands. Run `verse --help` for EPUB, normalized JSON, demo, and state-directory options. With no file argument, each frontend reopens its own last book.
+
+See [the integration guide](prototypes/overnight/integration/README.md) for development and validation. These launchers currently target the Linux development checkout. After moving the checkout, remove the old command symlinks and rebuild from the new location. Other platforms still need native build and packaging work.
+
+The sections below describe the original Omawrite base.
+
 # Omawrite
 
 A dead-simple Markdown writing app built with Qt Quick and C++ that automatically follows system dark/light mode.

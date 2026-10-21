@@ -11,7 +11,7 @@ ApplicationWindow {
     minimumWidth: 560
     minimumHeight: 480
     visible: true
-    title: reader.title + " · Reader"
+    title: reader.title + " · Verse"
     color: theme.background
     palette.window: theme.background
     palette.base: theme.background

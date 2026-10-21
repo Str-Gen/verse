@@ -396,7 +396,7 @@ fn main() {
     if let Err(error) = tauri::Builder::default()
         .setup(move |app| {
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
-                .title("Quiet reader")
+                .title("Verse")
                 .inner_size(1040.0, 820.0)
                 .min_inner_size(360.0, 480.0)
                 .data_directory(webview_data)
