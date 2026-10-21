@@ -308,10 +308,28 @@ impl DiskBook {
                 .filter(|at| *at < self.total)
             {
                 let piece = self.piece(at)?;
-                if !sources.is_empty()
-                    && piece.sources == sources
-                    && text == Some(piece.text.as_str())
-                {
+                let source_matches = !sources.is_empty() && piece.sources == sources;
+                let event = saved.get("event_anchor");
+                let event_matches = sources.is_empty()
+                    && piece.sources.is_empty()
+                    && piece.kind != "word"
+                    && location.get("book_id").and_then(Value::as_str)
+                        == Some(self.metadata.book_id.as_str())
+                    && location.get("revision").and_then(Value::as_str)
+                        == Some(self.metadata.revision.as_str())
+                    && event
+                        .and_then(|event| event.get("piece_id"))
+                        .and_then(Value::as_str)
+                        == Some(piece.id.as_str())
+                    && event
+                        .and_then(|event| event.get("block_id"))
+                        .and_then(Value::as_str)
+                        == Some(piece.block_id.as_str())
+                    && event
+                        .and_then(|event| event.get("kind"))
+                        .and_then(Value::as_str)
+                        == Some(piece.kind.as_str());
+                if (source_matches || event_matches) && text == Some(piece.text.as_str()) {
                     return Ok(session::Resume {
                         kind: "exact".into(),
                         at,
@@ -408,7 +426,38 @@ impl DiskBook {
                 book.chapters.push(chapter);
             }
         }
-        let mut record = session::capture(&book, at - start, preferences).map_err(invalid)?;
+        let piece = &book.pieces[at - start];
+        let mut record = if piece.sources.is_empty()
+            && piece.kind != "word"
+            && !piece.id.is_empty()
+            && !piece.block_id.is_empty()
+        {
+            let location =
+                crate::location::SavedLocation::capture(&book, &piece.id).map_err(invalid)?;
+            let mut record = preferences.as_object().cloned().unwrap_or_default();
+            record.insert("revision".into(), serde_json::json!(book.revision));
+            record.insert("sources".into(), serde_json::json!([]));
+            record.insert(
+                "location".into(),
+                serde_json::to_value(location).map_err(invalid)?,
+            );
+            record.insert("event_anchor".into(),serde_json::json!({"piece_id":piece.id,"block_id":piece.block_id,"kind":piece.kind}));
+            let speed = record
+                .get("speed")
+                .and_then(Value::as_u64)
+                .and_then(|speed| u32::try_from(speed).ok())
+                .unwrap_or(350);
+            record.insert("speed".into(), serde_json::json!(session::speed(speed)));
+            record.remove("context");
+            record.remove("chapter");
+            Value::Object(record)
+        } else {
+            let mut record = session::capture(&book, at - start, preferences).map_err(invalid)?;
+            if let Some(object) = record.as_object_mut() {
+                object.remove("event_anchor");
+            }
+            record
+        };
         record["piece_index"] = serde_json::json!(at);
         Ok(record)
     }
@@ -971,6 +1020,80 @@ impl<'de> Visitor<'de> for DocumentSeed<'_, '_> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn source_less_events_and_image_chapter_checkpoints_are_durable()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let root =
+            std::env::temp_dir().join(format!("disk-book-event-state-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root)?;
+        let path = root.join("book.json");
+        let state = root.join("state.json");
+        let mut book = empty_book();
+        book.book_id = "events".into();
+        book.revision = "one".into();
+        for (index, kind) in ["image", "word", "unsupported"].into_iter().enumerate() {
+            book.pieces.push(Piece {
+                id: format!("p{index}"),
+                text: if kind == "word" {
+                    "word".into()
+                } else {
+                    String::new()
+                },
+                word_id: format!("w{index}"),
+                sources: if kind == "word" {
+                    vec![SourceSpan {
+                        document: "d".into(),
+                        node: "n".into(),
+                        offset: 0,
+                        length: 4,
+                    }]
+                } else {
+                    Vec::new()
+                },
+                block_id: format!("b{index}"),
+                paragraph_end: false,
+                kind: kind.into(),
+                note_id: None,
+            });
+        }
+        book.chapters.push(crate::Chapter {
+            id: "illustrated-chapter".into(),
+            title: "Illustrated chapter".into(),
+            start_piece: "p0".into(),
+            end_piece_exclusive: None,
+        });
+        write_json(&path, &book)?;
+        let disk = DiskBook::open(&path)?;
+        let chapter = disk.capture(0, &serde_json::json!({"speed":450}))?;
+        for at in [0, 1, 2] {
+            let captured = disk.capture(at, &chapter)?;
+            assert_eq!(disk.restore(Some(&captured))?.kind, "exact");
+            assert_eq!(disk.restore(Some(&captured))?.at, at);
+            crate::persistence::save_record_for_book(&state, &disk, &captured, &chapter)?;
+            let loaded = crate::persistence::load_record_for_book(&state, &disk)?
+                .ok_or("checkpoint missing")?;
+            assert_eq!(disk.restore(Some(&loaded))?.at, at);
+            if at == 1 {
+                assert!(captured.get("event_anchor").is_none());
+            }
+        }
+        let mut damaged = disk.capture(1, &serde_json::json!({}))?;
+        damaged["location"]["sources"] = serde_json::json!([]);
+        damaged["event_anchor"] = chapter["event_anchor"].clone();
+        assert_ne!(disk.restore(Some(&damaged))?.kind, "exact");
+        assert!(
+            crate::persistence::save_record_for_book(&state, &disk, &damaged, &chapter).is_err()
+        );
+        let mut wrong_event = chapter.clone();
+        wrong_event["event_anchor"]["block_id"] = serde_json::json!("different-block");
+        assert_ne!(disk.restore(Some(&wrong_event))?.kind, "exact");
+        wrong_event = chapter;
+        wrong_event["revision"] = serde_json::json!("old");
+        wrong_event["location"]["revision"] = serde_json::json!("old");
+        assert_ne!(disk.restore(Some(&wrong_event))?.kind, "exact");
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
     #[test]
     fn absent_image_is_distinct_from_an_uncached_distant_image()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
