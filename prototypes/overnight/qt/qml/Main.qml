@@ -25,13 +25,16 @@ ApplicationWindow {
     property bool playback: false
     property int textSize: 20
     property bool controlsVisible: false
+    property alias controlsButton: controlsButton
+    property alias chaptersView: chapterList
+    property alias feedbackVisible: feedbackDialog.visible
     font.family: "IBM Plex Mono"
     font.pixelSize: 12
     FontMetrics { id: readingMetrics; font.family: "IBM Plex Mono"; font.pixelSize: window.textSize * theme.textScale }
     property var pages: [{ y: 0, position: 0 }]
     property int page: 0
     property bool ready: false
-    property bool shortcutsActive: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !noteDialog.visible
+    property bool shortcutsActive: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !noteDialog.visible && !feedbackDialog.visible && !historyDialog.visible
     property real pageY: pages[Math.min(page, pages.length - 1)].y
 
     Reader { id: reader }
@@ -42,11 +45,25 @@ ApplicationWindow {
         if (!ready || viewport.height < 100 || editor.contentHeight <= 0) return
         support.fitImages(editor, Math.max(1, editor.width - 8), Math.max(1, viewport.height - editor.font.pixelSize * 3))
         let result = [{y: 0, position: 0}]
+        let chapterStarts = (reader.chapters.length ? JSON.parse(reader.chapters) : [])
+            .map((title, index) => reader.chapter_position(index))
+            .filter(position => position >= 0)
+            .map(position => ({y: editor.positionToRectangle(position).y, position: position}))
         let y = 0
-        while (y + viewport.height < editor.contentHeight) {
-            let position = editor.positionAt(0, y + viewport.height - editor.font.pixelSize * 1.6)
-            let next = editor.positionToRectangle(position).y
-            if (next <= y + 1) break
+        while (true) {
+            let position = editor.length
+            let next = editor.contentHeight
+            if (y + viewport.height < editor.contentHeight) {
+                position = editor.positionAt(0, y + viewport.height - editor.font.pixelSize * 1.6)
+                next = editor.positionToRectangle(position).y
+            }
+            for (let chapter of chapterStarts) {
+                if (chapter.y > y + 1 && chapter.y < next) {
+                    next = chapter.y
+                    position = chapter.position
+                }
+            }
+            if (next <= y + 1 || next >= editor.contentHeight) break
             result.push({y: next, position: position})
             y = next
         }
@@ -84,10 +101,73 @@ ApplicationWindow {
         reader.play()
     }
     function returnToText() {
-        reader.pause()
+        reader.return_to_text()
         playback = false
         locate()
         editor.forceActiveFocus()
+    }
+    function toggleControls() {
+        controlsVisible = !controlsVisible
+        if (controlsVisible && reader.playing) reader.pause()
+    }
+    function jumpChapter(index) {
+        reader.jump_chapter(index)
+        playback = false
+        locate()
+        editor.forceActiveFocus()
+    }
+    function continueChapter(save) {
+        reader.finish_feedback(save ? paceBox.currentText : "", understandingBox.currentText, save && acceptSpeed.checked)
+        feedbackDialog.close()
+        if (reader.status === "End of book") returnToText()
+        else { playback = true; reader.play() }
+    }
+    Connections {
+        target: reader
+        function onFeedback_chapterChanged() {
+            if (reader.feedback_chapter.length > 0) {
+                paceBox.currentIndex = 0
+                understandingBox.currentIndex = 0
+                acceptSpeed.checked = false
+                feedbackDialog.open()
+            }
+        }
+    }
+    Dialog {
+        id: feedbackDialog
+        title: "Chapter complete"
+        anchors.centerIn: parent
+        width: Math.min(window.width - 40, 480)
+        modal: true
+        contentItem: ColumnLayout {
+            Label { text: reader.feedback_chapter; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true }
+            Label { text: "How did the pace feel?" }
+            ComboBox { id: paceBox; model: ["Comfortable", "Too slow", "Too fast"]; Layout.fillWidth: true; Accessible.name: "Chapter pace" }
+            Label { text: "How well could you follow the text?" }
+            ComboBox { id: understandingBox; model: ["Easily", "Mostly", "Struggled"]; Layout.fillWidth: true; Accessible.name: "Chapter understanding" }
+            CheckBox { id: acceptSpeed; visible: paceBox.currentIndex !== 0; text: paceBox.currentIndex === 1 ? "Increase speed by 25 WPM" : "Reduce speed by 25 WPM" }
+            Button { text: "Save and continue"; onClicked: continueChapter(true) }
+            Button { text: "Skip and continue"; onClicked: continueChapter(false) }
+            Button { text: "Return to text"; onClicked: { reader.finish_feedback("", "", false); feedbackDialog.close(); returnToText() } }
+        }
+    }
+    Dialog {
+        id: historyDialog
+        title: "Chapter feedback"
+        anchors.centerIn: parent
+        width: Math.min(window.width - 40, 540)
+        height: Math.min(window.height - 80, 520)
+        modal: true
+        standardButtons: Dialog.Close
+        contentItem: ColumnLayout {
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                TextArea { text: reader.history; textFormat: TextEdit.PlainText; readOnly: true; wrapMode: Text.Wrap; background: null }
+            }
+            Button { text: "Clear this book's history"; onClicked: reader.clear_history() }
+        }
     }
     onClosing: reader.persist()
     Component.onCompleted: {
@@ -181,6 +261,51 @@ ApplicationWindow {
             id: stage
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Rectangle {
+                id: navigation
+                objectName: "chapterSidebar"
+                visible: controlsVisible
+                width: Math.min(280, stage.width * 0.36)
+                height: parent.height
+                color: theme.background
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.rightMargin: 14
+                    spacing: 8
+                    Label { text: "Contents"; font.pixelSize: 16 }
+                    ListView {
+                        id: chapterList
+                        objectName: "chapterList"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: reader.chapters.length ? JSON.parse(reader.chapters) : []
+                        currentIndex: reader.chapter_index
+                        onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+                        ScrollBar.vertical: ScrollBar {}
+                        delegate: ItemDelegate {
+                            required property int index
+                            required property string modelData
+                            width: chapterList.width
+                            highlighted: index === reader.chapter_index
+                            text: modelData
+                            background: Rectangle { color: parent.highlighted ? theme.selection : "transparent" }
+                            contentItem: Label { text: parent.text; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: parent.highlighted ? theme.selectionForeground : theme.foreground }
+                            onClicked: window.jumpChapter(index)
+                            Accessible.name: modelData
+                        }
+                        Label { visible: chapterList.count === 0; text: "No chapters in this book"; width: parent.width; wrapMode: Text.Wrap }
+                    }
+                    CheckBox { text: "Play footnotes"; checked: reader.follow_notes; onClicked: reader.set_options(checked, reader.feedback_enabled) }
+                    CheckBox { text: "Chapter feedback"; checked: reader.feedback_enabled; onClicked: reader.set_options(reader.follow_notes, checked) }
+                    Button { text: "Feedback history"; onClicked: historyDialog.open() }
+                }
+            }
+            Item {
+                id: readingStage
+                anchors.left: navigation.visible ? navigation.right : parent.left
+                anchors.right: parent.right
+                height: parent.height
             Item {
                 id: viewport
                 width: Math.min(readingMetrics.averageCharacterWidth * 65, Math.max(360, window.width - readingMetrics.averageCharacterWidth * 20), Math.max(0, parent.width - 24))
@@ -227,10 +352,12 @@ ApplicationWindow {
                     }
                 }
             }
+            }
             Column {
                 visible: playback
-                anchors.centerIn: parent
-                width: parent.width
+                anchors.horizontalCenter: readingStage.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                width: readingStage.width
                 spacing: 18
                 Text {
                     text: reader.word
@@ -293,7 +420,7 @@ ApplicationWindow {
         RowLayout {
             Layout.fillWidth: true
             opacity: 0.65
-            ToolButton { text: "⋯"; Accessible.name: "Reader controls"; onClicked: controlsVisible = !controlsVisible }
+            ToolButton { id: controlsButton; text: "⋯"; objectName: "readerControls"; Accessible.name: "Contents and reader controls"; onClicked: window.toggleControls() }
             ToolButton { text: playback ? "Return to text" : "Previous"; onClicked: playback ? returnToText() : turn(-1) }
             Label { visible: !playback; text: (page + 1) + " / " + pages.length; opacity: 0.6 }
             ToolButton { visible: !playback; text: "Next"; onClicked: turn(1) }

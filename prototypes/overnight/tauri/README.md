@@ -37,7 +37,7 @@ Open `http://127.0.0.1:18772`. This serves only the bundled web directory and bi
 - Image and unsupported-content items pause. Space continues; Escape shows their conventional context. Explicit ornaments skip playback. Image classification belongs to the core.
 - Note links open on demand. With note following enabled, the core's `note_id` references play `notes[].pieces`, then continue after the marker. Nested notes are not followed recursively. This prototype also handles inline `kind: note` blocks in the small local fixture.
 - Logical chapter boundaries pause, including the end of the last chapter. Save and continue records the two subjective answers; Skip and continue stores no answers. Disabling questions retains the pause. Accepting the displayed suggestion changes speed by 25 WPM. History is local and can be cleared for the active book.
-- A changed revision never silently reuses an old array index. An exactly matching, unique five-piece context is offered for confirmation; otherwise an exact chapter-ID match is offered. With neither match, the old saved anchor remains until the reader explicitly chooses a new passage. This is a conservative prototype matcher, not the final shared-core recovery implementation.
+- A changed revision never silently reuses an old array index. The saved chapter start is offered for confirmation using its chapter ID, without passage matching. If that chapter is missing or ambiguous, the old saved anchor remains until the reader explicitly chooses a new passage.
 
 Source addresses use document, node, scalar offset and length plus revision. JavaScript splits strings by Unicode scalar value for source mapping; DOM selections map through source-labelled text fragments. A word spanning emphasis runs remains one playback piece. Pixel positions and page numbers are only transient layout data.
 
@@ -86,7 +86,7 @@ This is a runnable comparison artifact, not a release. It lays out the whole boo
 
 Playback includes sentence/paragraph pauses and a fixed center guide. It does not yet reproduce the accepted two-second preparation pulse, 30-second speed ramp, compound timing policy or recent-vocabulary capture. Explicit source-piece selection is verified; arbitrary partial-word selections start at their containing piece. Note interruption returns to the main-text marker rather than reopening a note at an internal word on restart.
 
-The JSON adapter validates structure but does not independently verify source addresses against an EPUB. It trusts the core's decoded-source semantics. Changed-edition matching currently uses a five-piece exact context and chapter IDs, with confirmation. Import errors keep the current book. Startup errors are reported, but automatic repair of corrupted scratch JSON is not implemented.
+The JSON adapter validates structure but does not independently verify source addresses against an EPUB. It trusts the core's decoded-source semantics. Changed editions use chapter IDs to offer the chapter start, with confirmation. Import errors keep the current book. Startup errors are reported, but automatic repair of corrupted scratch JSON is not implemented.
 
 Native persistence writes on position changes; close-during-write durability and power-loss behavior remain unverified. Only one process should use a scratch directory at a time. See REPORT.md for measured results, platform-specific launch constraints and remaining untested gates. See PORTS.md for official-source porting steps; Windows, macOS, Android and iOS are not claimed to work.
 

@@ -33,6 +33,17 @@ for piece in book['pieces']:
     for source in piece.get('sources', []):
         source['node'] = 'edited/' + source['node']
 (state / 'changed.json').write_text(json.dumps(book))
+notes = json.loads(pathlib.Path('fixtures/demo.json').read_text())
+notes['book_id'] = 'qt-notes-parity'
+notes['pieces'][3]['kind'] = 'note'
+notes['pieces'][3]['note_id'] = 'n'
+notes['notes'] = [{'id':'n', 'blocks':[{'id':'bn','kind':'paragraph','runs':[{'text':'Note, done.'}]}],
+    'pieces':[{'id':'n1','block_id':'bn','text':'Note,','kind':'word'}, {'id':'n2','block_id':'bn','text':'done.','kind':'word'}]}]
+for document in notes['documents']:
+    for block in document['blocks']:
+        if block.get('resource'):
+            block['resource'] = str(pathlib.Path('fixtures', block['resource']).resolve())
+(state / 'notes.json').write_text(json.dumps(notes))
 (state / 'before.json').write_bytes((state / 'resume.json').read_bytes())
 span = {"document":"d", "node":"n", "offset":0, "length":17}
 compound = {"schema_version":1,"book_id":"compound-cache","revision":"v1","title":"Compound",
@@ -44,7 +55,7 @@ PYFIXTURE
 READER_SMOKE=recover-pending "$reader_binary" --book-json "$state/changed.json" 2>&1 | tee evidence/runtime/recovery-pending.log
 cmp "$state/before.json" "$state/resume.json"
 READER_SMOKE=recover-confirm "$reader_binary" --book-json "$state/changed.json" 2>&1 | tee evidence/runtime/recovery-confirm.log
-READER_SMOKE=resume "$reader_binary" 2>&1 | tee evidence/runtime/recovered-resume.log
+READER_SMOKE=resume-chapter "$reader_binary" 2>&1 | tee evidence/runtime/recovered-resume.log
 READER_STATE_DIR="$state/selection" READER_SMOKE=selection READER_SCREENSHOT="$PWD/evidence/selection.png" "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee evidence/runtime/selection.log
 READER_STATE_DIR="$state/compound" READER_SMOKE=compound "$reader_binary" --book-json "$state/compound.json" 2>&1 | tee evidence/runtime/compound.log
 if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEngine failed' evidence/runtime/{smoke,resume,recovery-pending,recovery-confirm,recovered-resume,selection,compound}.log; then exit 1; fi
@@ -58,3 +69,11 @@ rg -q "READER_PLATFORM=$QT_QPA_PLATFORM" evidence/runtime/smoke.log
 
 rg -q "SELECTION COMPLETE" evidence/runtime/selection.log
 rg -q "COMPOUND COMPLETE" evidence/runtime/compound.log
+
+READER_STATE_DIR="$state/parity" READER_SMOKE=parity READER_SCREENSHOT="$PWD/evidence/sidebar.png" "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee evidence/runtime/parity.log
+rg -q "PARITY COMPLETE" evidence/runtime/parity.log
+if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEngine failed' evidence/runtime/parity.log; then exit 1; fi
+
+READER_STATE_DIR="$state/notes" READER_SMOKE=notes "$reader_binary" --book-json "$state/notes.json" 2>&1 | tee evidence/runtime/notes.log
+rg -q "NOTES COMPLETE" evidence/runtime/notes.log
+if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEngine failed' evidence/runtime/notes.log; then exit 1; fi

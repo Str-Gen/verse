@@ -18,7 +18,7 @@ For an exported book:
 
 Relative input paths are relative to this component because the launcher changes directory. The Open JSON button also switches books. A failed open retains the current book. With no input argument, the app opens its last successfully opened JSON path, or the demo on first launch.
 
-Select a passage and press Space or Play selection. Space pauses or continues; Escape returns to the last displayed piece. Left/Right and Previous/Next browse conventional pages. A−/A+ changes font size. Resize and typography changes retain the source anchor. The WPM control starts at 350 and is saved separately for each book. Images, unsupported pieces and logical chapter transitions pause playback. Continue advances past an inspected image. Notes are visible inline and skipped in playback; ornaments are skipped according to the producer's classification.
+Select a passage and press Space or Play selection. Space pauses or continues; Escape returns to the last displayed piece. Left/Right and Previous/Next browse conventional pages. A−/A+ changes font size. Resize and typography changes retain the source anchor. The WPM control starts at 350 and is saved separately for each book. Images, unsupported pieces and logical chapter transitions pause playback. Continue advances past an inspected image. Notes open on click and are skipped in playback by default. Enable Play footnotes in the contents sidebar to read them automatically and return after the reference. Escape returns to the reference in the book. Ornaments are skipped according to the producer's classification.
 
 ## Input and source locations
 
@@ -73,4 +73,4 @@ See `REPORT.md` for actual results and remaining limitations. This is a renderer
 
 The reading view defaults to Omawrite's IBM Plex Mono at 20 scaled pixels, a roughly 65-character column, and a quiet footer. The ellipsis reveals file, font and speed controls.
 
-The model links `reader-core` for playback transitions, punctuation pacing, recovery, and atomic state writes. Legacy unchanged-edition anchors migrate through unique source matches. Qt still owns its timers, rendering, and recovery confirmation controls. Optional note playback and chapter feedback UI remain separate follow-ups.
+The model links `reader-core` for playback transitions, punctuation pacing, recovery, and atomic state writes. Legacy unchanged-edition anchors migrate through unique source matches. Qt still owns its timers, rendering, and recovery confirmation controls. The bottom-left three dots toggle the existing controls and a contents sidebar. Chapter selection stops playback and highlights the chapter start. The sidebar also offers optional footnote playback, chapter feedback, and per-book feedback history. Feedback records pace and understanding, with an optional explicit 25 WPM adjustment. Changed revisions offer the saved chapter start for confirmation without passage matching; missing chapters preserve the old saved location.

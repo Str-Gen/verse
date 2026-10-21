@@ -20,6 +20,60 @@ QtObject {
     function run() {
         let reader = readerObject
         let editor = textEditor
+        if (smokeMode === "notes") {
+            reader.set_options(true, false)
+            let marker = reader.plain_text.indexOf("A 🦊")
+            reader.select(marker)
+            reader.change_speed(600)
+            reader.play()
+            check(reader.word === "Note," && reader.delay_ms === 125, "optional note uses punctuation pacing")
+            reader.tick()
+            check(reader.word === "done." && reader.position === marker, "note keeps the main reference anchor")
+            reader.tick()
+            check(reader.word === "🦊" && reader.playing, "note automatically returns after its reference")
+            reader.pause()
+            reader.select(marker)
+            reader.play()
+            host.returnToText()
+            check(reader.word === "A" && !reader.playing && editor.selectionStart === marker, "return to text leaves the note at its reference")
+            console.log("NOTES COMPLETE")
+            support.finish(0)
+            return
+        }
+        if (smokeMode === "parity") {
+            if (phase === 0) {
+                check(support.click(host.controlsButton, host.controlsButton.width / 2, host.controlsButton.height / 2), "native click on three dots delivered")
+                check(host.controlsVisible, "three-dot action opens contents and controls")
+                check(JSON.parse(reader.chapters).length === 2, "sidebar exposes book chapters")
+                phase = 1
+                later.start()
+            } else if (phase === 1) {
+                let item = host.chaptersView.itemAtIndex(1)
+                check(item !== null && support.click(item, item.width / 2, item.height / 2), "native chapter row click delivered")
+                check(reader.chapter_index === 1 && !reader.playing && !host.playback, "chapter jump is stopped in reading mode")
+                phase = 2
+                later.start()
+            } else {
+                check(editor.selectionStart === reader.position, "chapter jump highlights its source")
+                check(Math.abs(editor.positionToRectangle(reader.position).y - host.pageY) < 1, "chapter opens at the top of its page")
+                check(pageViewport.width > 0 && pageViewport.width < host.width, "reading viewport fits beside sidebar")
+                if (screenshotPath !== "") check(support.capture(screenshotPath), "sidebar screenshot saved")
+                host.toggleControls()
+                check(!host.controlsVisible, "three-dot action hides sidebar")
+                reader.select(reader.plain_text.indexOf("inland."))
+                reader.play()
+                reader.tick()
+                check(host.feedbackVisible && !reader.playing, "native chapter boundary opens optional feedback")
+                host.continueChapter(true)
+                reader.pause()
+                check(!host.feedbackVisible && reader.history.indexOf("Comfortable") >= 0, "feedback saves and continues to next chapter")
+                reader.set_options(true, false)
+                check(reader.follow_notes && !reader.feedback_enabled, "optional playback settings reach Rust")
+                console.log("PARITY COMPLETE")
+                support.finish(0)
+            }
+            return
+        }
         if (smokeMode === "compound") {
             check(reader.plain_text === "state-of-the-art.", "cached compound keeps its conventional text")
             reader.change_speed(600)
@@ -141,15 +195,15 @@ QtObject {
                 console.log("RECOVERY_PENDING COMPLETE")
             } else {
                 reader.confirm_recovery()
-                check(!reader.recovery_needed && reader.word === "crossed" && !reader.playing, "confirmed recovery adopts exact passage while stopped")
+                check(!reader.recovery_needed && reader.position === 0 && !reader.playing, "confirmed recovery adopts chapter start while stopped")
                 console.log("RECOVERY_CONFIRM COMPLETE")
             }
             support.finish(0)
             return
         }
-        if (smokeMode === "resume") {
+        if (smokeMode === "resume" || smokeMode === "resume-chapter") {
             check(!reader.playing && !host.playback, "restart is stopped in conventional view")
-            check(reader.speed === 425 && reader.word === "crossed", "per-book speed and source restored in new process")
+            check(reader.speed === 425 && (smokeMode === "resume-chapter" ? reader.position === 0 : reader.word === "crossed"), "per-book speed and source restored in new process")
             check(editor.selectionStart === reader.position, "restored source highlighted")
             console.log("RESUME COMPLETE")
             support.finish(0)

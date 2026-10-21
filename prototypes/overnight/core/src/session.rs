@@ -168,8 +168,8 @@ pub struct Resume {
     pub at: usize,
 }
 /// Reads new anchors and conservatively migrates either legacy frontend record.
-/// Old short contexts never qualify for passage recovery. An unchanged revision
-/// can migrate only a unique exact source anchor. No write occurs here.
+/// Changed revisions propose the saved chapter start without matching passages.
+/// An unchanged revision can migrate only a unique exact source anchor. No write occurs here.
 pub fn restore(book: &Book, saved: Option<&Value>) -> Result<Resume, LocationError> {
     let Some(saved) = saved else {
         return Ok(Resume {
@@ -200,20 +200,38 @@ pub fn restore(book: &Book, saved: Option<&Value>) -> Result<Resume, LocationErr
             .pieces
             .iter()
             .filter(|p| !sources.is_empty() && p.sources == sources);
-        let text = match (exact.next(), exact.next()) {
-            (Some(p), None) if revision == book.revision => p.text.clone(),
+        let text = match (revision == book.revision).then(|| (exact.next(), exact.next())) {
+            Some((Some(p), None)) => p.text.clone(),
             _ => String::new(),
         };
         let chapter = saved.get("chapter");
-        // Tauri's old record did not store a chapter title. Do not invent one
-        // from the new edition to satisfy the confidence rule.
+        // Legacy Tauri records used a chapter ID string.
         serde_json::from_value(json!({
             "book_id": book.book_id, "revision": revision, "sources": sources,
             "text": text, "context": [], "context_anchor": 0,
-            "chapter_id": chapter.and_then(|c| c.get("id")).and_then(Value::as_str),
+            "chapter_id": chapter.and_then(|c| c.as_str().or_else(|| c.get("id").and_then(Value::as_str))),
             "chapter_title": chapter.and_then(|c| c.get("title")).and_then(Value::as_str)
         }))?
     };
+    // Changed books resume at an identified chapter, without scanning passage text.
+    if location.revision != book.revision {
+        let mut chapters = book.chapters.iter().filter(|chapter| {
+            location.book_id == book.book_id && location.chapter_id.as_ref() == Some(&chapter.id)
+        });
+        let at = match (chapters.next(), chapters.next()) {
+            (Some(chapter), None) => book.pieces.iter().position(|p| p.id == chapter.start_piece),
+            _ => None,
+        };
+        return Ok(Resume {
+            kind: if at.is_some() {
+                "chapter"
+            } else {
+                "unresolved"
+            }
+            .into(),
+            at: at.unwrap_or(0),
+        });
+    }
     let (kind, id) = match recover_location(book, &location) {
         Recovery::Exact { piece_id } => ("exact", Some(piece_id)),
         Recovery::ProposePassage { piece_id } => ("passage", Some(piece_id)),
@@ -275,7 +293,8 @@ mod tests {
         assert_eq!(saved["history"], json!(["kept"]));
         let before = saved.clone();
         book.revision = "two".into();
-        assert_eq!(restore(&book, Some(&saved))?.kind, "passage");
+        assert_eq!(restore(&book, Some(&saved))?.kind, "chapter");
+        assert_eq!(restore(&book, Some(&saved))?.at, 0);
         assert_eq!(saved, before);
         book.book_id = "other".into();
         assert_eq!(restore(&book, Some(&saved))?.kind, "unresolved");

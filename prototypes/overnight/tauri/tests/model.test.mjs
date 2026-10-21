@@ -13,11 +13,11 @@ test('joined inline word maps all three fragments to one piece', () => {
   assert.equal(block.runs.flatMap(r=>runSegments(r,sourceIndex(book))).filter(s=>s.piece===at).map(s=>s.text).join(''),'unbelievable');
   assert.equal(utf16ToScalar('A🦉B',3),2);
 });
-test('revision changes demand confirmation, duplicate passage falls back to identified chapter', () => {
+test('revision changes offer the identified chapter regardless of passage matches', () => {
   const at=book.pieces.findIndex(p=>p.text==='unbelievable'); const saved=position(book,at);
   assert.deepEqual(restore(book,saved),{kind:'exact',at});
   const revised=structuredClone(book); revised.revision='changed';
-  assert.equal(restore(revised,saved).kind,'passage');
+  assert.equal(restore(revised,saved).kind,'chapter');
   revised.pieces.push(...structuredClone(revised.pieces));
   assert.equal(restore(revised,saved).kind,'chapter');
   assert.equal(restore(revised,{...saved,chapter:'absent'}).kind,'unresolved');

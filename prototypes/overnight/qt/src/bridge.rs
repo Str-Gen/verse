@@ -24,8 +24,31 @@ pub mod ffi {
         #[qproperty(i32, speed)]
         #[qproperty(i32, delay_ms)]
         #[qproperty(bool, playing)]
+        #[qproperty(QString, chapters)]
+        #[qproperty(i32, chapter_index)]
+        #[qproperty(bool, follow_notes)]
+        #[qproperty(bool, feedback_enabled)]
+        #[qproperty(QString, feedback_chapter)]
+        #[qproperty(QString, history)]
         type Reader = super::ReaderRust;
 
+        #[qinvokable]
+        fn chapter_position(self: &Reader, index: i32) -> i32;
+        #[qinvokable]
+        fn jump_chapter(self: Pin<&mut Reader>, index: i32);
+        #[qinvokable]
+        fn return_to_text(self: Pin<&mut Reader>);
+        #[qinvokable]
+        fn set_options(self: Pin<&mut Reader>, notes: bool, feedback: bool);
+        #[qinvokable]
+        fn finish_feedback(
+            self: Pin<&mut Reader>,
+            pace: &QString,
+            understanding: &QString,
+            accept_speed: bool,
+        );
+        #[qinvokable]
+        fn clear_history(self: Pin<&mut Reader>);
         #[qinvokable]
         fn note_text(self: &Reader, id: &QString) -> QString;
         #[qinvokable]
@@ -65,6 +88,12 @@ pub struct ReaderRust {
     speed: i32,
     delay_ms: i32,
     playing: bool,
+    chapters: QString,
+    chapter_index: i32,
+    follow_notes: bool,
+    feedback_enabled: bool,
+    feedback_chapter: QString,
+    history: QString,
     model: Option<Model>,
     state_path: PathBuf,
 }
@@ -143,6 +172,10 @@ impl ffi::Reader {
                             format!("Book opened, but cannot remember its path: {error}");
                     }
                 }
+                self.as_mut()
+                    .set_chapters(QString::from(model.chapters_json()));
+                self.as_mut()
+                    .set_history(QString::from(model.history_text()));
                 self.as_mut().set_title(QString::from(&model.title));
                 self.as_mut().set_html(QString::from(&model.html));
                 self.as_mut()
@@ -165,8 +198,18 @@ impl ffi::Reader {
                 model.playing,
                 model.delay_ms(),
             );
+            let extras = (
+                model.chapter_index(),
+                model.follow_notes,
+                model.feedback_enabled,
+                model.feedback_chapter(),
+            );
             let recovery = model.recovery_description().unwrap_or_default();
             let recovery_needed = model.needs_recovery();
+            self.as_mut().set_chapter_index(extras.0);
+            self.as_mut().set_follow_notes(extras.1);
+            self.as_mut().set_feedback_enabled(extras.2);
+            self.as_mut().set_feedback_chapter(QString::from(extras.3));
             self.as_mut().set_recovery_needed(recovery_needed);
             self.as_mut().set_recovery(QString::from(recovery));
             self.as_mut().set_word(QString::from(values.0));
@@ -183,6 +226,64 @@ impl ffi::Reader {
         }
     }
 
+    pub fn chapter_position(&self, index: i32) -> i32 {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.rust().model.as_ref()?.chapter_position(index))
+            .and_then(|position| i32::try_from(position).ok())
+            .unwrap_or(-1)
+    }
+    pub fn jump_chapter(mut self: Pin<&mut Self>, index: i32) {
+        if let Some(model) = &mut self.as_mut().rust_mut().model
+            && let Ok(index) = usize::try_from(index)
+        {
+            model.jump_chapter(index);
+        }
+        self.as_mut().sync();
+        self.persist();
+    }
+    pub fn return_to_text(mut self: Pin<&mut Self>) {
+        if let Some(model) = &mut self.as_mut().rust_mut().model {
+            model.return_to_text();
+        }
+        self.as_mut().sync();
+        self.persist();
+    }
+    pub fn set_options(mut self: Pin<&mut Self>, notes: bool, feedback: bool) {
+        if let Some(model) = &mut self.as_mut().rust_mut().model {
+            model.follow_notes = notes;
+            model.feedback_enabled = feedback;
+        }
+        self.as_mut().sync();
+        self.persist();
+    }
+    pub fn finish_feedback(
+        mut self: Pin<&mut Self>,
+        pace: &QString,
+        understanding: &QString,
+        accept_speed: bool,
+    ) {
+        if let Some(model) = &mut self.as_mut().rust_mut().model {
+            model.finish_feedback(&pace.to_string(), &understanding.to_string(), accept_speed);
+        }
+        if let Some(model) = &self.rust().model {
+            let history = QString::from(model.history_text());
+            self.as_mut().set_history(history);
+        }
+        self.as_mut().sync();
+        self.persist();
+    }
+    pub fn clear_history(mut self: Pin<&mut Self>) {
+        if let Some(model) = &mut self.as_mut().rust_mut().model {
+            model.clear_history();
+        }
+        if let Some(model) = &self.rust().model {
+            let history = QString::from(model.history_text());
+            self.as_mut().set_history(history);
+        }
+        self.as_mut().sync();
+        self.persist();
+    }
     pub fn select(mut self: Pin<&mut Self>, position: i32) {
         if let Some(model) = &mut self.as_mut().rust_mut().model {
             model.select_utf16(usize::try_from(position).unwrap_or(0));

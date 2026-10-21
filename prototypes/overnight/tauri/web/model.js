@@ -84,8 +84,6 @@ export function restore(book, saved) {
     const at = book.pieces.findIndex(p => sameSources(p.sources, saved.sources));
     if (at >= 0) return { kind: 'exact', at };
   }
-  const matches = book.pieces.map((_, i) => i).filter(i => contextAt(book, i) === saved.context);
-  if (matches.length === 1 && saved.context?.length >= 20) return { kind: 'passage', at: matches[0] };
   const chapters = book.chapters.filter(c => c.id === saved.chapter);
   if (chapters.length === 1) return { kind: 'chapter', at: book.pieces.findIndex(p => p.id === chapters[0].start_piece) };
   return { kind: 'unresolved', at: 0 };

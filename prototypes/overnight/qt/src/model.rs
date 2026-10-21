@@ -18,6 +18,21 @@ struct SavedBooks {
     books: BTreeMap<String, Value>,
 }
 
+struct NotePlayback {
+    note: usize,
+    at: usize,
+    actions: Vec<session::Playback>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Feedback {
+    chapter: String,
+    pace: String,
+    understanding: String,
+    speed_before: u32,
+    speed_after: u32,
+}
+
 pub struct Model {
     pub title: String,
     pub html: String,
@@ -28,9 +43,15 @@ pub struct Model {
     pub status: String,
     book: Book,
     positions: Vec<(usize, usize)>,
+    chapter_positions: Vec<usize>,
     preserve_saved: bool,
     inspected_stop: Option<usize>,
     recovery: Option<Recovery>,
+    pub follow_notes: bool,
+    pub feedback_enabled: bool,
+    note_playback: Option<NotePlayback>,
+    completed_chapter: Option<String>,
+    history: Vec<Feedback>,
 }
 
 impl Model {
@@ -53,7 +74,19 @@ impl Model {
         }
         validate(&book)?;
         let (html, plain_text, positions) = render(&book, directory)?;
+        let piece_indices: BTreeMap<_, _> = book
+            .pieces
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.id.as_str(), i))
+            .collect();
+        let chapter_positions = book
+            .chapters
+            .iter()
+            .filter_map(|c| piece_indices.get(c.start_piece.as_str()).copied())
+            .collect();
         Ok(Self {
+            chapter_positions,
             title: book.title.clone(),
             html,
             plain_text,
@@ -66,6 +99,11 @@ impl Model {
             preserve_saved: false,
             inspected_stop: None,
             recovery: None,
+            follow_notes: false,
+            feedback_enabled: true,
+            note_playback: None,
+            completed_chapter: None,
+            history: Vec::new(),
         })
     }
 
@@ -96,7 +134,14 @@ impl Model {
         &self.book.book_id
     }
     pub fn current_text(&self) -> String {
-        self.book.pieces[self.current].text.clone()
+        self.note_playback.as_ref().map_or_else(
+            || self.book.pieces[self.current].text.clone(),
+            |playback| {
+                self.book.notes[playback.note].pieces[playback.at]
+                    .text
+                    .clone()
+            },
+        )
     }
     pub fn current_utf16(&self) -> usize {
         self.positions[self.current].0
@@ -105,7 +150,150 @@ impl Model {
         self.positions[self.current].1
     }
 
+    pub fn chapters_json(&self) -> String {
+        json!(
+            self.book
+                .chapters
+                .iter()
+                .map(|c| &c.title)
+                .collect::<Vec<_>>()
+        )
+        .to_string()
+    }
+
+    pub fn chapter_position(&self, index: usize) -> Option<usize> {
+        self.chapter_positions
+            .get(index)
+            .map(|&at| self.positions[at].0)
+    }
+
+    pub fn chapter_index(&self) -> i32 {
+        self.chapter_positions
+            .iter()
+            .rposition(|&at| at <= self.current)
+            .and_then(|i| i32::try_from(i).ok())
+            .unwrap_or(-1)
+    }
+
+    pub fn jump_chapter(&mut self, index: usize) {
+        let Some(&at) = self.chapter_positions.get(index) else {
+            return;
+        };
+        self.return_to_text();
+        self.completed_chapter = None;
+        self.current = at;
+        self.inspected_stop = None;
+        self.status = "Selected chapter".into();
+    }
+
+    pub fn return_to_text(&mut self) {
+        self.pause();
+        self.note_playback = None;
+    }
+
+    pub fn feedback_chapter(&self) -> String {
+        self.completed_chapter.clone().unwrap_or_default()
+    }
+
+    pub fn history_text(&self) -> String {
+        if self.history.is_empty() {
+            return "No chapter feedback saved.".into();
+        }
+        self.history
+            .iter()
+            .rev()
+            .map(|entry| {
+                format!(
+                    "{}\nPace: {}; followed: {}\n{} → {} WPM",
+                    entry.chapter,
+                    entry.pace,
+                    entry.understanding,
+                    entry.speed_before,
+                    entry.speed_after
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+
+    pub fn finish_feedback(&mut self, pace: &str, understanding: &str, accept_speed: bool) {
+        let Some(chapter) = self.completed_chapter.take() else {
+            return;
+        };
+        if !matches!(pace, "Comfortable" | "Too slow" | "Too fast") {
+            return;
+        }
+        let before = self.speed;
+        if accept_speed {
+            self.speed = session::speed(match pace {
+                "Too slow" => self.speed.saturating_add(25),
+                "Too fast" => self.speed.saturating_sub(25),
+                _ => self.speed,
+            });
+        }
+        self.history.push(Feedback {
+            chapter,
+            pace: pace.into(),
+            understanding: understanding.into(),
+            speed_before: before,
+            speed_after: self.speed,
+        });
+    }
+
+    fn complete_chapter(&mut self) {
+        if self.feedback_enabled {
+            self.completed_chapter = usize::try_from(self.chapter_index())
+                .ok()
+                .and_then(|i| self.book.chapters.get(i))
+                .map(|c| c.title.clone());
+        }
+    }
+
+    fn enter_note(&mut self) -> bool {
+        if !self.follow_notes
+            || session::kind(&self.book.pieces[self.current]) != session::Kind::Note
+        {
+            return false;
+        }
+        let id = self.book.pieces[self.current].note_id.as_ref();
+        let found = self.book.notes.iter().position(|n| Some(&n.id) == id);
+        if let Some(note) = found {
+            let pieces = &self.book.notes[note].pieces;
+            if let Some(at) = pieces.iter().position(|p| !session::skip(p, false)) {
+                self.note_playback = Some(NotePlayback {
+                    note,
+                    at,
+                    actions: session::plan(pieces, &[], false),
+                });
+                self.update_note_status();
+                return true;
+            }
+        }
+        self.playing = false;
+        self.inspected_stop = Some(self.current);
+        self.status = "Note unavailable. Press play to continue.".into();
+        true
+    }
+
+    fn update_note_status(&mut self) {
+        if let Some(note) = &self.note_playback {
+            self.playing = note.actions[note.at].kind == session::Kind::Word;
+            self.status = if self.playing {
+                "Reading note. Return to text goes to its reference."
+            } else {
+                "Note contains an image or unsupported content. Press play to continue."
+            }
+            .into();
+        }
+    }
+
     pub fn select_utf16(&mut self, position: usize) {
+        self.note_playback = None;
+        self.completed_chapter = None;
         self.playing = false;
         self.current = self
             .positions
@@ -125,6 +313,21 @@ impl Model {
     }
 
     pub fn start(&mut self) {
+        self.completed_chapter = None;
+        if let Some(note) = &self.note_playback {
+            self.playing = true;
+            if note.actions[note.at].kind != session::Kind::Word {
+                self.step();
+            }
+            return;
+        }
+        if self.inspected_stop == Some(self.current)
+            && session::kind(&self.book.pieces[self.current]) == session::Kind::Note
+        {
+            self.playing = true;
+            self.step();
+            return;
+        }
         if matches!(
             session::kind(&self.book.pieces[self.current]),
             session::Kind::Image | session::Kind::Unsupported
@@ -140,6 +343,9 @@ impl Model {
             }
         }
         if !self.skip_manual() {
+            return;
+        }
+        if self.enter_note() {
             return;
         }
         if matches!(
@@ -169,19 +375,37 @@ impl Model {
         if !self.playing {
             return;
         }
-        let Some(action) = session::playback(&self.book, self.current, false) else {
+        if let Some(note) = &mut self.note_playback {
+            if let Some(next) = note.actions[note.at].next {
+                note.at = next;
+                self.update_note_status();
+                return;
+            }
+            self.note_playback = None;
+            self.status = "Playing".into();
+        }
+        let Some(action) = session::playback(&self.book, self.current, self.follow_notes) else {
             return;
         };
         let Some(next) = action.next else {
+            self.complete_chapter();
             self.playing = false;
             self.status = "End of book".into();
             return;
         };
+        if action.chapter_boundary {
+            self.complete_chapter();
+        }
         self.current = next;
         if action.chapter_boundary {
             self.playing = false;
             self.status = "Chapter boundary. Press play to continue.".into();
-        } else if !matches!(
+            return;
+        }
+        if self.enter_note() {
+            return;
+        }
+        if !matches!(
             session::kind(&self.book.pieces[self.current]),
             session::Kind::Word
         ) {
@@ -190,11 +414,17 @@ impl Model {
     }
 
     pub fn delay_ms(&self) -> u32 {
+        if let Some(note) = &self.note_playback {
+            let action = &note.actions[note.at];
+            return (60_000.0 / f64::from(session::speed(self.speed)) * action.multiplier).round()
+                as u32
+                + action.extra_ms;
+        }
         session::delay_ms(&self.book, self.current, self.speed)
     }
 
     fn skip_manual(&mut self) -> bool {
-        if let Some(at) = session::start(&self.book, self.current, false) {
+        if let Some(at) = session::start(&self.book, self.current, self.follow_notes) {
             self.current = at;
             true
         } else {
@@ -221,6 +451,9 @@ impl Model {
             .cloned()
             .unwrap_or(json!({}));
         preferences["speed"] = json!(self.speed);
+        preferences["follow_notes"] = json!(self.follow_notes);
+        preferences["feedback_enabled"] = json!(self.feedback_enabled);
+        preferences["qt_history"] = json!(self.history);
         saved.books.insert(
             self.book.book_id.clone(),
             session::capture(&self.book, self.current, &preferences).map_err(|e| e.to_string())?,
@@ -281,6 +514,12 @@ impl Model {
             return Ok(());
         };
         self.preserve_saved = true;
+        self.follow_notes = state["follow_notes"].as_bool().unwrap_or(false);
+        self.feedback_enabled = state["feedback_enabled"].as_bool().unwrap_or(true);
+        if let Some(history) = state.get("qt_history") {
+            self.history = serde_json::from_value(history.clone())
+                .map_err(|e| format!("Invalid feedback history: {e}"))?;
+        }
         self.speed = session::speed(
             state
                 .get("speed")
@@ -638,6 +877,122 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn chapter_navigation_feedback_and_preferences_round_trip()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let path = std::env::temp_dir().join(format!("qt-parity-{}.json", std::process::id()));
+        let mut model = demo()?;
+        model.follow_notes = true;
+        model.jump_chapter(1);
+        assert_eq!(model.chapter_index(), 1);
+        assert!(!model.playing);
+        let next = model.current;
+        model.current = next - 1;
+        model.playing = true;
+        model.step();
+        assert!(!model.playing);
+        assert!(!model.feedback_chapter().is_empty());
+        model.finish_feedback("", "", false);
+        assert!(model.history.is_empty());
+        model.current = next - 1;
+        model.playing = true;
+        model.step();
+        model.finish_feedback("Too fast", "Mostly", false);
+        assert_eq!(model.speed, 350);
+        model.current = next - 1;
+        model.playing = true;
+        model.step();
+        model.finish_feedback("Too fast", "Struggled", true);
+        assert_eq!(model.speed, 325);
+        model.save(&path)?;
+        let mut restored = demo()?;
+        restored.restore(&path)?;
+        assert!(restored.follow_notes);
+        assert_eq!(restored.history.len(), 2);
+        assert!(restored.history_text().contains("350 → 325 WPM"));
+        assert_eq!(restored.current, next);
+        restored.clear_history();
+        restored.save(&path)?;
+        model.restore(&path)?;
+        assert!(model.history.is_empty());
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn missing_note_can_continue_and_disabled_feedback_stays_quiet()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut model = demo()?;
+        model.follow_notes = true;
+        model.book.pieces[3].kind = "note".into();
+        model.book.pieces[3].note_id = Some("missing".into());
+        model.current = 3;
+        model.start();
+        assert!(!model.playing);
+        assert!(model.status.contains("unavailable"));
+        model.start();
+        assert_eq!(model.current, 4);
+        assert!(model.playing);
+        model.jump_chapter(1);
+        model.current -= 1;
+        model.feedback_enabled = false;
+        model.playing = true;
+        model.step();
+        assert!(!model.playing);
+        assert!(model.feedback_chapter().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn optional_notes_return_and_save_the_main_text_anchor()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let path = std::env::temp_dir().join(format!("qt-note-parity-{}.json", std::process::id()));
+        let mut model = demo()?;
+        model.book.pieces[3].kind = "note".into();
+        model.book.pieces[3].note_id = Some("n".into());
+        let mut pieces = model.book.pieces[4..6].to_vec();
+        pieces[0].text = "Note,".into();
+        pieces[1].text = "done.".into();
+        model.book.notes.push(reader_core::Note {
+            id: "n".into(),
+            blocks: vec![],
+            pieces,
+        });
+        model.current = 3;
+        model.start();
+        assert_eq!(model.current, 4);
+        model.return_to_text();
+        model.follow_notes = true;
+        model.current = 3;
+        model.speed = 600;
+        model.start();
+        assert_eq!(model.current_text(), "Note,");
+        assert_eq!(model.delay_ms(), 125);
+        model.pause();
+        model.start();
+        assert_eq!(model.current_text(), "Note,");
+        model.step();
+        assert_eq!(model.current_text(), "done.");
+        model.save(&path)?;
+        let saved = read_saved(&path)?;
+        assert_eq!(
+            saved.books[model.book_id()]["sources"],
+            json!(model.book.pieces[3].sources)
+        );
+        model.step();
+        assert_eq!(model.current, 4);
+        assert!(model.note_playback.is_none());
+        assert!(model.playing);
+        model.current = 3;
+        model.start();
+        model.return_to_text();
+        assert_eq!(model.current, 3);
+        assert!(model.note_playback.is_none());
+        assert!(!model.playing);
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
     fn demo() -> Result<Model, String> {
         Model::from_json(include_str!("../fixtures/demo.json"), Path::new("fixtures"))
     }
@@ -860,7 +1215,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn changed_revision_requires_confirmation_before_unique_recovery()
+    fn changed_revision_offers_chapter_start_without_passage_matching()
     -> Result<(), Box<dyn std::error::Error>> {
         let path =
             std::env::temp_dir().join(format!("qt-model-recovery-{}.json", std::process::id()));
@@ -875,12 +1230,12 @@ mod tests {
         assert!(
             revised
                 .recovery_description()
-                .is_some_and(|description| description.contains("unique matching passage"))
+                .is_some_and(|description| description.contains("chapter's start"))
         );
         assert!(revised.save(&path).is_err());
         assert_eq!(fs::read(&path)?, before);
         revised.confirm_recovery()?;
-        assert_eq!(revised.current, 12);
+        assert_eq!(revised.current, 0);
         assert!(!revised.playing);
         revised.save(&path)?;
         let saved = read_saved(&path)?;

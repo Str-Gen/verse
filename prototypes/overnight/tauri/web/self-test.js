@@ -75,11 +75,11 @@ export async function runTests(reader) {
     check('notes skipped by default and next unsupported item still pauses', reader.snapshot.at === unsupported && reader.snapshot.mode === 'paused'); reader.returnToText();
     reader.choose(joined); const location = position(original, joined);
     const edited = structuredClone(original); edited.revision = 'synthetic-v2';
-    check('changed revision requires unique passage confirmation', restore(edited, location).kind === 'passage');
+    check('changed revision offers chapter start confirmation', restore(edited, location).kind === 'chapter');
     await reader.loadBook(edited); check('recovery guards saved state until confirmation', $('recovery').open && reader.snapshot.guarded && reader.snapshot.state.books[original.book_id].revision === original.revision);
     $('cancel-recovery').click(); await reader.flush();
     check('declining recovery preserves old revision', reader.snapshot.state.books[original.book_id].revision === original.revision);
-    await reader.loadBook(edited); $('accept-recovery').click(); check('confirmed passage recovery uses source piece', reader.snapshot.at === joined && !reader.snapshot.guarded);
+    await reader.loadBook(edited); $('accept-recovery').click(); check('confirmed recovery uses chapter start', reader.snapshot.at === restore(edited, location).at && !reader.snapshot.guarded);
     check('unresolved recovery never guesses an index', restore(edited, { ...location, context: 'missing context', chapter: 'missing-chapter' }).kind === 'unresolved');
     const malicious = structuredClone(original); malicious.title = '<script>window.publisherRan=true</script>'; malicious.documents[0].blocks[0].runs[0].text = '<script>bad()</script>'; malicious.documents[0].blocks[0].runs[0].sources[0].length = Array.from(malicious.documents[0].blocks[0].runs[0].text).length;
     malicious.documents[0].blocks.find(b => b.kind === 'image').resource = 'https://example.invalid/tracker.png'; malicious.book_id = 'security-synthetic';
@@ -87,7 +87,7 @@ export async function runTests(reader) {
     check('publisher markup remains text and external image URL is not rendered', !window.publisherRan && !$('book').querySelector('script') && !$('book').querySelector('img[src^="https:"]'));
     const core = validateBook(await (await fetch('core-demo.json')).json());
     await reader.importBook(JSON.stringify(core));
-    check('Rust-core synthetic export opens through the JSON adapter', reader.snapshot.book.pieces.length === 49 && reader.snapshot.book.chapters.length === 3);
+    check('Rust-core synthetic export opens through the JSON adapter', reader.snapshot.book.pieces.length === 52 && reader.snapshot.book.chapters.length === 3 && reader.snapshot.book.pieces.some(p => p.text === 'state-'));
     await wait(80);
     check('core embedded raster resources render locally', [...$('book').querySelectorAll('img')].length === 5 && [...$('book').querySelectorAll('img')].every(img => img.complete && img.naturalWidth > 0 && img.src.startsWith('data:image/')));
     check('loaded images do not duplicate alt text as captions', !$('book').querySelector('figcaption'));
