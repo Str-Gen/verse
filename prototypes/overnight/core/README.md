@@ -85,3 +85,5 @@ cargo build --locked -j 2
 ```
 
 See [REPORT.md](REPORT.md) for executed results and [fixtures/README.md](fixtures/README.md) for independent expected text and source behavior.
+
+The `experience` module owns preparation/ramp constants and the native timing policy. `vocabulary` launches the shared Python worker in `vocabulary/`, reusing the accepted capture, asynchronous ranking, SQLite storage and offline dictionary implementation. The worker maps normalized source spans back to paragraph coordinates, preserving split-compound coverage and sentence context. Native adapters record actual main-text exposure, excluding preparation and pauses. See `../integration/README.md` for runtime configuration and checks.

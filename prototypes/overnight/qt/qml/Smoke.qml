@@ -17,16 +17,61 @@ QtObject {
         }
         console.log("SMOKE PASS: " + label)
     }
+    property var continuation: null
+    function afterPreparation(callback) { continuation = callback; prepared.start() }
+    property Timer prepared: Timer { interval: 25; repeat: true; onTriggered: { if (readerObject.preparing) return; stop(); exposed.start() } }
+    property Timer exposed: Timer { interval: 30; onTriggered: { let callback = continuation; continuation = null; callback() } }
     function run() {
         let reader = readerObject
         let editor = textEditor
+        if (smokeMode === "experience") {
+            let panel = host.vocabularyView
+            let selected = reader.plain_text.indexOf("crossed")
+            editor.select(selected, selected + 7)
+            reader.change_speed(60)
+            host.begin()
+            check(reader.preparing && reader.word === "crossed", "preparation holds the selected source word")
+            reader.pause()
+            check(!reader.preparing && !reader.playing, "pause cancels preparation")
+            reader.play()
+            check(reader.preparing, "cancelled preparation starts fresh")
+            let empty = JSON.parse(reader.vocabulary(JSON.stringify({action:"capture",scope:"seconds"})))
+            check(!!empty.error, "preparation does not enter capture history")
+            afterPreparation(() => {
+                check(!reader.preparing && reader.word === "crossed", "pulse finishes before the first reading interval")
+                reader.pause()
+                reader.play()
+                check(!reader.preparing && reader.delay_ms === 1000, "brief pause resumes immediately at full selected speed")
+                reader.pause()
+                panel.capture()
+                panel.showReview()
+                check(panel.visible && panel.review.captures.length === 1, "native capture reaches book-specific review")
+                let capture = panel.review.captures[0]
+                check(capture.context === "crossed" && capture.status === "awaiting_key", "offline capture saves only actually displayed text")
+                panel.request({action:"feedback",capture:capture.id,candidate:0,choice:"recognition"})
+                panel.refresh()
+                check(panel.review.words.length === 1, "native feedback persists a saved word")
+                let definition = panel.request({action:"definition",word:"crossed"})
+                check(definition.available && definition.entries[0].senses.length === 2, "native local lookup retains all dictionary senses")
+                panel.practicing = true
+                panel.practiceAt = 0
+                panel.card()
+                check(panel.practiceWord === "crossed", "practice flashes the saved word")
+                if (screenshotPath !== "") check(support.capture(screenshotPath), "native vocabulary screenshot saved")
+                panel.close()
+                console.log("EXPERIENCE COMPLETE")
+                support.finish(0)
+            })
+            return
+        }
         if (smokeMode === "notes") {
             reader.set_options(true, false)
             let marker = reader.plain_text.indexOf("A 🦊")
-            reader.select(marker)
+            editor.select(marker, marker + 1)
             reader.change_speed(600)
-            reader.play()
-            check(reader.word === "Note," && reader.delay_ms === 125, "optional note uses punctuation pacing")
+            host.begin()
+            afterPreparation(() => {
+            check(reader.word === "Note," && Math.abs(reader.delay_ms - 250) <= 2, "optional note uses punctuation pacing")
             reader.tick()
             check(reader.word === "done." && reader.position === marker, "note keeps the main reference anchor")
             reader.tick()
@@ -38,6 +83,7 @@ QtObject {
             check(reader.word === "A" && !reader.playing && editor.selectionStart === marker, "return to text leaves the note at its reference")
             console.log("NOTES COMPLETE")
             support.finish(0)
+            })
             return
         }
         if (smokeMode === "parity") {
@@ -60,8 +106,10 @@ QtObject {
                 if (screenshotPath !== "") check(support.capture(screenshotPath), "sidebar screenshot saved")
                 host.toggleControls()
                 check(!host.controlsVisible, "three-dot action hides sidebar")
-                reader.select(reader.plain_text.indexOf("inland."))
-                reader.play()
+                let end = reader.plain_text.indexOf("inland.")
+                editor.select(end, end + 7)
+                host.begin()
+                afterPreparation(() => {
                 reader.tick()
                 check(host.feedbackVisible && !reader.playing, "native chapter boundary opens optional feedback")
                 host.continueChapter(true)
@@ -71,6 +119,7 @@ QtObject {
                 check(reader.follow_notes && !reader.feedback_enabled, "optional playback settings reach Rust")
                 console.log("PARITY COMPLETE")
                 support.finish(0)
+                })
             }
             return
         }
@@ -79,11 +128,12 @@ QtObject {
             reader.change_speed(600)
             editor.cursorPosition = 0
             host.begin()
+            afterPreparation(() => {
             const beats = ["state-", "of-", "the-", "art."]
             const delays = [80, 80, 80, 290]
             for (let i = 0; i < beats.length; i++) {
                 check(reader.word === beats[i], "compound beat " + beats[i])
-                check(reader.delay_ms === delays[i], "compound cadence " + delays[i] + " ms")
+                check(Math.abs(reader.delay_ms - delays[i] * 2) <= 3, "compound cadence " + delays[i] + " ms")
                 if (i + 1 < beats.length) reader.tick()
             }
             reader.pause()
@@ -91,6 +141,7 @@ QtObject {
             check(editor.selectedText === "art." && reader.position === 13, "return highlights the exact last compound beat")
             console.log("COMPOUND COMPLETE")
             support.finish(0)
+            })
             return
         }
         if (smokeMode === "selection") {
@@ -130,6 +181,7 @@ QtObject {
             editor.select(start + 1, start + 3)
             host.begin()
             check(reader.word === "A😀B" && reader.position === start, "native UTF-16 selection resolves scalar source word")
+            afterPreparation(() => {
             reader.tick()
             reader.pause()
             check(reader.word === "𝄞tone", "next whole astral word displayed")
@@ -142,6 +194,7 @@ QtObject {
             if (screenshotPath !== "") check(support.capture(screenshotPath), "independent native screenshot saved")
             console.log("INDEPENDENT COMPLETE")
             support.finish(0)
+            })
             return
         }
         if (smokeMode === "core") {
@@ -234,6 +287,7 @@ QtObject {
             editor.select(fox, fox + 2)
             host.begin()
             check(reader.word === "🦊" && reader.position === fox, "selection starts exact Unicode source piece")
+            afterPreparation(() => {
             reader.tick()
             reader.pause()
             check(reader.word === "crossed", "playback advances")
@@ -252,6 +306,7 @@ QtObject {
             host.paginate()
             phase = 1
             later.start()
+            })
         } else if (phase === 1) {
             check(reader.position === anchor && reader.word === anchorWord, "font and resize retain source passage")
             let rectangle = editor.positionToRectangle(anchor)
@@ -261,8 +316,10 @@ QtObject {
             playbackStart = reader.position
             host.begin()
             phase = 2
+            later.interval = 2500
             later.start()
         } else if (phase === 2) {
+            later.interval = 300
             check(reader.position > playbackStart, "real QML timer advances visible playback")
             reader.pause()
             displayedBeforeReturn = reader.position

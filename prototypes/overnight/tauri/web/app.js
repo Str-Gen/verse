@@ -1,3 +1,5 @@
+import { Comfort } from './comfort.js';
+import { VocabularyUI } from './vocabulary.js';
 import { startTheme } from './theme.js';
 import { validateBook, sourceIndex, runSegments, chapterAt, position, restore, localImage } from './model.js';
 const $ = id => document.getElementById(id);
@@ -8,6 +10,26 @@ let mode = 'reading', timer, nextChapter = null, guarded = false, recoveryAt = n
 let startup = null, notePlayback = null, policy = null;
 let paceChanges = [], writeQueue = Promise.resolve(), sourceMap, pageForPiece = new Map();
 const blocks = new Map();
+let comfort = new Comfort(), preparing = false, exposures = [], exposure = null;
+const vocabulary = new VocabularyUI(async request => {
+  if (!native) throw new Error('Vocabulary is available in the native app.');
+  if (request.action === 'capture') {
+    finishExposure();
+    request = {...request, exposures, now: performance.now(), tap_id: crypto.randomUUID()};
+    if (mode === 'playing' && !preparing) beginExposure();
+  }
+  return native.invoke('vocabulary', {request});
+}, () => { if (mode === 'playing') { stop(); mode = 'paused'; } }, speed, notice);
+function beginExposure() { exposure = !notePlayback && kindAt(at) === 'word' ? {piece: at, start: performance.now()} : null; }
+function finishExposure() {
+  if (exposure) { const end = performance.now(); if (end > exposure.start) exposures.push({...exposure, end}); exposure = null; exposures = exposures.slice(-2000); }
+}
+function beginPlayback() {
+  const delay = comfort.start(performance.now());
+  if (!delay) { schedule(); return; }
+  preparing = true; mode = 'playing'; $('playback').classList.add('preparing', 'running');
+  timer = setTimeout(() => { preparing = false; $('playback').classList.remove('preparing'); schedule(); }, delay);
+}
 function notice(text = '') { $('notice').textContent = text; }
 function preferences() { return Object.hasOwn(saved.books, book.book_id) ? saved.books[book.book_id] : {}; }
 function speed() { return Math.max(60, Math.min(1200, Number($('speed').value) || 350)); }
@@ -125,9 +147,9 @@ function turn(direction) {
   const first = [...pageForPiece].find(([, p]) => p === page);
   if (first) choose(first[0]);
 }
-function stop() { clearTimeout(timer); timer = undefined; $('playback').classList.remove('running'); }
+function stop() { finishExposure(); if (mode === 'playing') comfort.pause(performance.now()); preparing = false; clearTimeout(timer); timer = undefined; $('playback').classList.remove('running', 'preparing'); }
 function returnToText() {
-  stop(); notePlayback = null; mode = 'reading'; $('playback').hidden = true;
+  stop(); comfort = new Comfort(policy?.comfort); notePlayback = null; mode = 'reading'; $('playback').hidden = true;
   if ($('boundary').open) $('boundary').close();
   reflow(); persist();
 }
@@ -137,7 +159,7 @@ function kindAt(index) {
   return ['word','paragraph','heading','list_item','image','ornament','note','unsupported'].includes(kind) ? kind : 'unsupported';
 }
 function skipAt(index) { return kindAt(index) === 'ornament' || (kindAt(index) === 'note' && !$('follow-notes').checked); }
-function enterNote() {
+function enterNote(start = false) {
   const piece = book.pieces[at];
   if (kindAt(at) !== 'note' || !piece.note_id || !$('follow-notes').checked) return false;
   const note = book.notes.find(n => n.id === piece.note_id);
@@ -147,6 +169,7 @@ function enterNote() {
   if (index < 0) return false;
   notePlayback = { note, index, actions }; displayNote();
   if (['image', 'unsupported'].includes(actions?.[index].kind)) { stop(); mode = 'paused'; }
+  else if (start) beginPlayback();
   else schedule();
   return true;
 }
@@ -165,6 +188,7 @@ function boundary(next) {
   $('boundary').showModal();
 }
 function advance() {
+  finishExposure();
   clearTimeout(timer);
   if (notePlayback) {
     const action = notePlayback.actions?.[notePlayback.index];
@@ -193,7 +217,8 @@ function schedule() {
   const piece = notePlayback ? notePlayback.note.pieces[notePlayback.index] : book.pieces[at];
   const timing = notePlayback ? notePlayback.actions?.[notePlayback.index] : policy?.normal[at];
   const multiplier = timing ? timing.multiplier : /[.!?][”'"’)]?$/.test(piece.text) ? 1.7 : /[,;:]$/.test(piece.text) ? 1.25 : 1;
-  timer = setTimeout(advance, 60000 / speed() * multiplier + (timing ? timing.extra_ms : piece.paragraph_end ? 120 : 0));
+  beginExposure();
+  timer = setTimeout(advance, (60000 / speed() * multiplier + (timing ? timing.extra_ms : piece.paragraph_end ? 120 : 0)) / comfort.fraction(performance.now()));
 }
 function play() {
   if (document.querySelector('dialog[open]')) return;
@@ -205,11 +230,11 @@ function play() {
       at = policy ? next : at + 1;
     }
     $('playback').hidden = false; displayCurrent();
-    if (enterNote()) return;
+    if (enterNote(true)) return;
     if (['image','unsupported'].includes(kindAt(at))) { mode = 'paused'; return; }
-    schedule();
-  } else if (['image','unsupported'].includes(notePlayback ? notePlayback.actions?.[notePlayback.index].kind : kindAt(at))) advance();
-  else schedule();
+    beginPlayback();
+  } else if (['image','unsupported'].includes(notePlayback ? notePlayback.actions?.[notePlayback.index].kind : kindAt(at))) { advance(); if (mode === 'playing') { clearTimeout(timer); finishExposure(); beginPlayback(); } }
+  else beginPlayback();
 }
 function continueChapter(store) {
   if (nextChapter === null) return;
@@ -223,9 +248,9 @@ function continueChapter(store) {
   paceChanges = []; const destination = nextChapter; nextChapter = null; $('boundary').close();
   if (destination >= book.pieces.length) { persist(); returnToText(); notice('End of book.'); return; }
   at = destination; displayCurrent();
-  if (enterNote()) return;
+  if (enterNote(true)) return;
   if (['image', 'unsupported'].includes(kindAt(at))) { mode = 'paused'; return; }
-  schedule();
+  beginPlayback();
 }
 function showDetails(title, text, history = false) {
   $('details-title').textContent = title; $('details-body').textContent = text; $('clear-history').hidden = !history; $('details').showModal();
@@ -237,6 +262,7 @@ async function loadBook(value) {
   const prefsForBook = saved.books[validated.book_id];
   const prepared = native ? await native.invoke('prepare_session', { book: validated, saved: prefsForBook ?? null }) : null;
   policy = prepared;
+  comfort = new Comfort(policy?.comfort); exposures = []; exposure = null; vocabulary.reset();
   notePlayback = null; book = prepared ? validateBook(prepared.book) : validated; mode = 'reading'; $('playback').hidden = true; guarded = false;
   const prefs = preferences(), location = prepared?.resume ?? restore(book, prefs.revision ? prefs : null);
   $('speed').value = Number.isFinite(prefs.speed) ? prefs.speed : 350;
@@ -246,7 +272,7 @@ async function loadBook(value) {
   at = location.kind === 'exact' ? location.at : 0;
   paceChanges = prefs.pendingChapter === (chapterAt(book, at)?.id ?? null) && Array.isArray(prefs.pendingChanges) ? prefs.pendingChanges : [];
   guarded = !['fresh', 'exact'].includes(location.kind);
-  render(); reflow(); notice('Select a passage to choose a starting point. Space plays or pauses; Escape returns.');
+  render(); reflow(); notice(prepared?.vocabulary_error ? 'Book opened; vocabulary unavailable: ' + prepared.vocabulary_error : 'Select a passage to choose a starting point. Space plays or pauses; Escape returns.');
   if (guarded) {
     recoveryAt = location.kind === 'unresolved' ? null : location.at;
     $('recovery-text').textContent = location.kind === 'passage' ? 'One matching passage was found. Confirm before using it.' : location.kind === 'chapter' ? 'The old passage was not uniquely found. Use the identified chapter start?' : 'No unique passage or identified chapter was found. Your old saved location is preserved. Choose a new passage to replace it.';
@@ -301,7 +327,9 @@ document.addEventListener('keydown', event => {
   if (document.querySelector('dialog[open]')) return;
   if (mode === 'reading' && /INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
   if (mode === 'reading' && event.target.tagName === 'BUTTON' && event.code === 'Space') return;
-  if (event.code === 'Space') { event.preventDefault(); play(); }
+  if (event.code === 'KeyC') { event.preventDefault(); vocabulary.capture(); }
+  else if (event.code === 'KeyV') { event.preventDefault(); vocabulary.open(); }
+  else if (event.code === 'Space') { event.preventDefault(); play(); }
   else if (event.code === 'Escape') returnToText();
   else if (event.code === 'ArrowRight') { event.preventDefault(); turn(1); }
   else if (event.code === 'ArrowLeft') { event.preventDefault(); turn(-1); }
@@ -312,7 +340,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && mod
 export const reader = {
   get startup() { return startup; },
   get snapshot() { return { book, at, page, pages, mode, guarded, notePlayback, state: saved, speed: speed(), pageForPiece }; },
-  choose, reflow, turn, play, returnToText, importBook, loadBook, advance,
+  choose, reflow, turn, play, returnToText, importBook, loadBook, advance, vocabulary,
   flush: () => writeQueue,
 };
 async function boot() {

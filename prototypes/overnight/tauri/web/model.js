@@ -95,6 +95,6 @@ export function position(book, at) {
 export function localImage(resource) {
   // Accept bundled artwork and embedded raster data; book size is bounded at import.
   if (resource === 'synthetic-landscape.svg') return resource;
-  if (typeof resource === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(resource)) return resource;
+  if (typeof resource === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(resource)) return resource;
   return null;
 }

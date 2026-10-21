@@ -34,10 +34,25 @@ ApplicationWindow {
     property var pages: [{ y: 0, position: 0 }]
     property int page: 0
     property bool ready: false
-    property bool shortcutsActive: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !noteDialog.visible && !feedbackDialog.visible && !historyDialog.visible
+    property bool shortcutsActive: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !noteDialog.visible && !feedbackDialog.visible && !historyDialog.visible && !vocabularyPanel.visible
     property real pageY: pages[Math.min(page, pages.length - 1)].y
 
     Reader { id: reader }
+    property alias vocabularyView: vocabularyPanel
+    VocabularyPanel { id: vocabularyPanel; readerObject: reader; onMessageChanged: { if (!visible && window.playback) captureNotice.restart() } }
+    Timer { id: captureNotice; interval: 2500 }
+    Label {
+        z: 5
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 80
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width - 40, 600)
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+        textFormat: Text.PlainText
+        text: vocabularyPanel.message
+        visible: captureNotice.running && window.playback
+    }
     function preserveSelection() {
         if (ready && !playback && editor.selectedText.length > 0) reader.select(editor.selectionStart)
     }
@@ -184,6 +199,8 @@ ApplicationWindow {
         repeat: true
         onTriggered: reader.tick()
     }
+    Shortcut { sequence: "C"; enabled: window.shortcutsActive && playback; onActivated: vocabularyPanel.capture() }
+    Shortcut { sequence: "V"; enabled: window.shortcutsActive; onActivated: vocabularyPanel.showReview() }
     Shortcut { sequence: "Right"; enabled: window.shortcutsActive && !playback && !speedBox.activeFocus; onActivated: turn(1) }
     Shortcut { sequence: "Left"; enabled: window.shortcutsActive && !playback && !speedBox.activeFocus; onActivated: turn(-1) }
     Shortcut { sequence: "Space"; enabled: window.shortcutsActive && !speedBox.activeFocus; onActivated: reader.playing ? reader.pause() : begin() }
@@ -298,6 +315,10 @@ ApplicationWindow {
                     }
                     CheckBox { text: "Play footnotes"; checked: reader.follow_notes; onClicked: reader.set_options(checked, reader.feedback_enabled) }
                     CheckBox { text: "Chapter feedback"; checked: reader.feedback_enabled; onClicked: reader.set_options(reader.follow_notes, checked) }
+                    Button { text: "Word list · V"; onClicked: vocabularyPanel.showReview() }
+                    Button { text: "Capture · C"; onClicked: vocabularyPanel.capture() }
+                    ComboBox { model: ["Five seconds", "Three sentences"]; onActivated: vocabularyPanel.scope = currentIndex === 0 ? "seconds" : "sentences"; Accessible.name: "Vocabulary capture window" }
+                    Label { text: vocabularyPanel.message; textFormat: Text.PlainText; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     Button { text: "Feedback history"; onClicked: historyDialog.open() }
                 }
             }
@@ -354,6 +375,15 @@ ApplicationWindow {
             }
             }
             Column {
+                id: playbackFocus
+                opacity: 1
+                SequentialAnimation on opacity {
+                    running: reader.preparing
+                    NumberAnimation { from: 0; to: 0.85; duration: 800; easing.type: Easing.InOutSine }
+                    NumberAnimation { to: 0.5; duration: 500; easing.type: Easing.InOutSine }
+                    NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
+                    onStopped: playbackFocus.opacity = 1
+                }
                 visible: playback
                 anchors.horizontalCenter: readingStage.horizontalCenter
                 anchors.verticalCenter: parent.verticalCenter

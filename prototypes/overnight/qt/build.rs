@@ -1,8 +1,10 @@
 use cxx_qt_build::{CxxQtBuilder, QmlModule};
 fn main() {
-    CxxQtBuilder::new_qml_module(
-        QmlModule::new("Overnight.Reader").qml_files(["qml/Main.qml", "qml/Smoke.qml"]),
-    )
+    CxxQtBuilder::new_qml_module(QmlModule::new("Overnight.Reader").qml_files([
+        "qml/Main.qml",
+        "qml/Smoke.qml",
+        "qml/VocabularyPanel.qml",
+    ]))
     .crate_include_root(Some("native".into()))
     .qt_module("Quick")
     .qt_module("QuickControls2")

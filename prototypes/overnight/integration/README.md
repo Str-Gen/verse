@@ -46,3 +46,23 @@ The native script requires the installed Wayland session, Qt 6 and WebKitGTK. It
 The independent worker's generic ten-action trace protocol has no completed Qt/Tauri driver. Its independent content fixtures do run through both native renderers with source-selection and return assertions. Browser tests, mobile ports, broad publication compatibility and user visual acceptance are not implied by native tests.
 
 For sequential resource samples, build both release artifacts, wait until no builds remain, then run `python prototypes/overnight/integration/measure.py`. It refuses to start while build processes exist. Outputs and synthetic screenshots are in ignored `evidence/`; the final control-directory archive preserves them. See the root `MORNING-REPORT.md` for observed outcomes and unresolved gates.
+
+## Reading experience integration, 21 October
+
+Both native apps now use a two-second preparation pulse and a 30-second normalized tanh ramp from half to full selected WPM. A pause of up to 30 seconds after reading begins resumes at full speed. Returning to conventional reading, selecting a new passage, or reopening a book starts fresh. Cancelling preparation does not count as reading. Punctuation and paragraph timing scale with the ramp.
+
+Press **C** during playback to capture the last five seconds of actual display time. The controls also offer a three-sentence window. Press **V**, or choose **Word list**, for book-specific review. A capture saves locally before optional Jev ranking; unavailable credentials and failed requests remain visible and retryable. Each ranked tap offers one suggestion with its source sentence, unfamiliar / slow recognition / dismiss choices, and expandable local definitions. Saved words have voluntary recognition practice at the selected WPM, with context/definition reveal and temporary Comfortable / Difficult / Skip counts. Preparation, pauses, and note excursions do not enter the main-text capture history. The capture confirmation reminds the reader that the word list is stored for later review.
+
+The accepted prototype's vocabulary and dictionary modules now live under `core/vocabulary`. Both Rust shells call the same private Python JSON-lines worker; Python 3 is a runtime dependency for vocabulary. No local HTTP service is needed. Each app keeps `vocabulary.sqlite` in its own state directory, alongside its existing reading state. The earlier prototype database is unchanged. Dictionary lookup stays offline and retains all supplied senses and attribution.
+
+Configuration:
+
+- `TYPESAFE_API_KEY` or `VERSE_KEY_FILE` supplies ranking credentials. On this development machine, the existing `~/speedreading/jev-speedreading.key` is the default key file. Only explicit capture/retry actions request ranking.
+- `VERSE_DICTIONARY` selects the local Kaikki SQLite file. The development default is the existing `~/speedreading/omawrite/test-data/local/dictionary.sqlite`. A missing installation and a missing entry have distinct messages.
+- No ranking service was called during verification. Tests unset the key and use synthetic dictionary data or the offline lookup path.
+
+Verification adds `python -m unittest discover -s prototypes/overnight/core/vocabulary -p 'test_*.py'`, `qt/tests/experience.sh`, and Tauri's native capture/practice checks to the existing suites. Qt smoke tests now wait for actual preparation completion before asserting playback transitions.
+
+Images already normalized GIF, AVIF, BMP and TIFF to PNG before this work. Both frontend allowlists also accept embedded GIF from older/external exports now. The core's seven-format decode/export and conservative ornament tests pass. Standalone SVG remains an explicit unsupported pause and is deferred. Broad visual ornament recognition is not claimed.
+
+The historical `check_core.py` oracle is not a current release gate: its CSS-hidden fixture assumes publisher CSS is applied, whereas the earlier Verse typography change deliberately ignores publisher CSS. It currently reports that mismatch plus the retained SVG failure. This integration leaves the oracle and those failures visible; the Rust content tests cover the current HTML-semantic policy.

@@ -1,6 +1,12 @@
 use crate::model::Model;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
+use reader_core::{
+    experience::{Comfort, Exposure},
+    vocabulary::Vocabulary,
+};
+use serde_json::{Value, json};
+use std::time::Instant;
 use std::{path::PathBuf, pin::Pin};
 
 #[cxx_qt::bridge]
@@ -24,6 +30,7 @@ pub mod ffi {
         #[qproperty(i32, speed)]
         #[qproperty(i32, delay_ms)]
         #[qproperty(bool, playing)]
+        #[qproperty(bool, preparing)]
         #[qproperty(QString, chapters)]
         #[qproperty(i32, chapter_index)]
         #[qproperty(bool, follow_notes)]
@@ -32,6 +39,8 @@ pub mod ffi {
         #[qproperty(QString, history)]
         type Reader = super::ReaderRust;
 
+        #[qinvokable]
+        fn vocabulary(self: Pin<&mut Reader>, request: &QString) -> QString;
         #[qinvokable]
         fn chapter_position(self: &Reader, index: i32) -> i32;
         #[qinvokable]
@@ -88,6 +97,12 @@ pub struct ReaderRust {
     speed: i32,
     delay_ms: i32,
     playing: bool,
+    preparing: bool,
+    clock: Option<Instant>,
+    comfort: Comfort,
+    exposures: Vec<Exposure>,
+    exposure: Option<(usize, u64)>,
+    vocabulary: Option<Vocabulary>,
     chapters: QString,
     chapter_index: i32,
     follow_notes: bool,
@@ -106,6 +121,71 @@ fn argument(name: &str) -> Option<String> {
 }
 
 impl ffi::Reader {
+    fn now(&self) -> u64 {
+        self.rust().clock.map_or(0, |clock| {
+            u64::try_from(clock.elapsed().as_millis()).unwrap_or(u64::MAX)
+        })
+    }
+    fn finish_exposure(mut self: Pin<&mut Self>) {
+        let now = self.now();
+        let mut rust = self.as_mut().rust_mut();
+        if let Some((piece, start)) = rust.exposure.take()
+            && now > start
+        {
+            rust.exposures.push(Exposure {
+                piece,
+                start,
+                end: now,
+            });
+            if rust.exposures.len() > 2000 {
+                rust.exposures.remove(0);
+            }
+        }
+    }
+    fn begin_exposure(mut self: Pin<&mut Self>) {
+        let now = self.now();
+        let mut rust = self.as_mut().rust_mut();
+        rust.exposure = rust
+            .model
+            .as_ref()
+            .filter(|m| m.playing)
+            .and_then(|m| m.exposed_index())
+            .map(|i| (i, now));
+    }
+    pub fn vocabulary(mut self: Pin<&mut Self>, request: &QString) -> QString {
+        let result = (|| -> Result<Value, String> {
+            let mut request: Value =
+                serde_json::from_str(&request.to_string()).map_err(|e| e.to_string())?;
+            if request["action"] == "capture" {
+                self.as_mut().finish_exposure();
+                request["exposures"] = json!(self.rust().exposures);
+                request["now"] = json!(self.now());
+                if !self.rust().preparing {
+                    self.as_mut().begin_exposure();
+                }
+            }
+            if self.rust().vocabulary.is_none() {
+                let mut rust = self.as_mut().rust_mut();
+                let model = rust.model.as_ref().ok_or("No book open")?;
+                let root = rust.state_path.parent().ok_or("No state directory")?;
+                rust.vocabulary = Some(Vocabulary::open(root, model.book())?);
+            }
+            self.as_mut()
+                .rust_mut()
+                .vocabulary
+                .as_mut()
+                .ok_or("Vocabulary unavailable")?
+                .request(&request)
+        })();
+        QString::from(
+            match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => json!({"error":error}),
+            }
+            .to_string(),
+        )
+    }
+
     pub fn note_text(&self, id: &QString) -> QString {
         QString::from(self.rust().model.as_ref().map_or_else(
             || "No book open".into(),
@@ -147,6 +227,13 @@ impl ffi::Reader {
     pub fn open_book(mut self: Pin<&mut Self>, path: &QString) {
         match Model::load(path.to_string()) {
             Ok(mut model) => {
+                self.as_mut().finish_exposure();
+                let mut rust = self.as_mut().rust_mut();
+                rust.clock = Some(Instant::now());
+                rust.comfort = Comfort::default();
+                rust.exposures.clear();
+                rust.vocabulary = None;
+                self.as_mut().set_preparing(false);
                 let previous_error = self
                     .rust()
                     .model
@@ -170,6 +257,18 @@ impl ffi::Reader {
                     if let Err(error) = remembered {
                         model.status =
                             format!("Book opened, but cannot remember its path: {error}");
+                    }
+                }
+                let vocabulary = self
+                    .rust()
+                    .state_path
+                    .parent()
+                    .ok_or_else(|| "No state directory".to_owned())
+                    .and_then(|root| Vocabulary::open(root, model.book()));
+                match vocabulary {
+                    Ok(worker) => self.as_mut().rust_mut().vocabulary = Some(worker),
+                    Err(error) => {
+                        model.status = format!("Book opened; vocabulary unavailable: {error}")
                     }
                 }
                 self.as_mut()
@@ -196,7 +295,12 @@ impl ffi::Reader {
                 model.current_utf16_end(),
                 model.speed,
                 model.playing,
-                model.delay_ms(),
+                if self.rust().preparing {
+                    self.rust().comfort.preparation_left(self.now()).max(1) as u32
+                } else {
+                    (f64::from(model.delay_ms()) / self.rust().comfort.fraction(self.now())).round()
+                        as u32
+                },
             );
             let extras = (
                 model.chapter_index(),
@@ -234,6 +338,9 @@ impl ffi::Reader {
             .unwrap_or(-1)
     }
     pub fn jump_chapter(mut self: Pin<&mut Self>, index: i32) {
+        self.as_mut().finish_exposure();
+        self.as_mut().rust_mut().comfort = Comfort::default();
+        self.as_mut().set_preparing(false);
         if let Some(model) = &mut self.as_mut().rust_mut().model
             && let Ok(index) = usize::try_from(index)
         {
@@ -243,6 +350,9 @@ impl ffi::Reader {
         self.persist();
     }
     pub fn return_to_text(mut self: Pin<&mut Self>) {
+        self.as_mut().finish_exposure();
+        self.as_mut().rust_mut().comfort = Comfort::default();
+        self.as_mut().set_preparing(false);
         if let Some(model) = &mut self.as_mut().rust_mut().model {
             model.return_to_text();
         }
@@ -285,6 +395,9 @@ impl ffi::Reader {
         self.persist();
     }
     pub fn select(mut self: Pin<&mut Self>, position: i32) {
+        self.as_mut().finish_exposure();
+        self.as_mut().rust_mut().comfort = Comfort::default();
+        self.as_mut().set_preparing(false);
         if let Some(model) = &mut self.as_mut().rust_mut().model {
             model.select_utf16(usize::try_from(position).unwrap_or(0));
         }
@@ -292,12 +405,27 @@ impl ffi::Reader {
         self.persist();
     }
     pub fn play(mut self: Pin<&mut Self>) {
+        if self.rust().playing {
+            return;
+        }
+        let now = self.now();
+        self.as_mut().rust_mut().comfort.start(now);
         if let Some(model) = &mut self.as_mut().rust_mut().model {
             model.start();
+        }
+        let preparing = self.rust().model.as_ref().is_some_and(|m| m.playing)
+            && self.rust().comfort.preparation_left(now) > 0;
+        self.as_mut().set_preparing(preparing);
+        if !preparing {
+            self.as_mut().begin_exposure();
         }
         self.sync();
     }
     pub fn pause(mut self: Pin<&mut Self>) {
+        self.as_mut().finish_exposure();
+        let now = self.now();
+        self.as_mut().rust_mut().comfort.pause(now);
+        self.as_mut().set_preparing(false);
         if let Some(model) = &mut self.as_mut().rust_mut().model {
             model.pause();
         }
@@ -305,12 +433,25 @@ impl ffi::Reader {
         self.persist();
     }
     pub fn tick(mut self: Pin<&mut Self>) {
+        if self.rust().preparing {
+            if self.rust().comfort.preparation_left(self.now()) == 0 {
+                self.as_mut().set_preparing(false);
+                self.as_mut().begin_exposure();
+            }
+            self.sync();
+            return;
+        }
+        self.as_mut().finish_exposure();
         if let Some(model) = &mut self.as_mut().rust_mut().model {
             model.step();
         }
         self.as_mut().sync();
         if !self.rust().playing {
+            let now = self.now();
+            self.as_mut().rust_mut().comfort.pause(now);
             self.persist();
+        } else {
+            self.begin_exposure();
         }
     }
     pub fn change_speed(mut self: Pin<&mut Self>, value: i32) {

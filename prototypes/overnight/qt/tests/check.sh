@@ -10,3 +10,5 @@ RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked -j 2
 ./tests/theme.sh
 ./tests/whitespace.sh
 ./tests/smoke.sh
+
+./tests/experience.sh

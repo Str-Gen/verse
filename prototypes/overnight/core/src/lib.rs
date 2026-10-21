@@ -176,3 +176,6 @@ fn zip_explanation(error: &zip::result::ZipError) -> String {
         _ => format!("invalid or damaged ZIP archive: {error}"),
     }
 }
+
+pub mod experience;
+pub mod vocabulary;

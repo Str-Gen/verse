@@ -8,3 +8,11 @@ button,select,input { font:inherit; color:inherit; accent-color:var(--accent) } 
 dialog { background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:8px; max-width:min(540px,90vw); padding:28px; max-height:85vh } dialog::backdrop { background:#0005 } dialog h2 { margin-top:0; font:24px "IBM Plex Mono","JetBrainsMono Nerd Font",monospace } dialog label { margin:16px 0; flex-wrap:wrap } dialog button { margin:8px 8px 0 0 } #details-body { white-space:pre-wrap; line-height:1.5 } .history-entry { padding:12px 0; border-bottom:1px solid var(--line) }
 @media(prefers-color-scheme:dark) { :root { --paper:#202322; --ink:#dedbd2; --muted:#a4a69e; --line:#3c413e; --accent:#c8ac78 } } @media(max-width:600px) { header,footer { padding:10px; gap:8px } main { padding:0 20px 4px } #title { max-width:130px } button,.open { padding:7px } #settings { gap:10px } }
 .note-link { border:0; padding:0 .15em; color:var(--accent); vertical-align:super; font-size:.75em }
+@keyframes preparation-pulse { 0% { opacity: 0; } 40% { opacity: .85; } 65% { opacity: .5; } 100% { opacity: 1; } }
+.preparing #word, .preparing #guide { animation: preparation-pulse 2s ease-in-out both; }
+#vocabulary, #practice { width: min(900px, 90vw); max-height: 85vh; overflow: auto; }
+#vocabulary-rows section { padding: 18px 0; border-bottom: 1px solid currentColor; }
+#vocabulary-rows button { margin: 4px; }
+#vocabulary-rows pre, #practice-definition { white-space: pre-wrap; font: inherit; }
+#practice-word { text-align: center; font-size: 40px; min-height: 70px; }
+[aria-pressed="true"] { outline: 2px solid currentColor; }

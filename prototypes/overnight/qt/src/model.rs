@@ -55,6 +55,14 @@ pub struct Model {
 }
 
 impl Model {
+    pub fn book(&self) -> &Book {
+        &self.book
+    }
+    pub fn exposed_index(&self) -> Option<usize> {
+        (self.note_playback.is_none()
+            && session::kind(&self.book.pieces[self.current]) == session::Kind::Word)
+            .then_some(self.current)
+    }
     pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref();
         let json = fs::read_to_string(path).map_err(|e| format!("Cannot read book JSON: {e}"))?;
@@ -744,6 +752,7 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
                 {
                     if ![
                         "data:image/png;base64,",
+                        "data:image/gif;base64,",
                         "data:image/jpeg;base64,",
                         "data:image/webp;base64,",
                     ]

@@ -17,6 +17,7 @@ struct Store {
     root: PathBuf,
     book: Mutex<reader_core::Book>,
     self_test: bool,
+    vocabulary: Mutex<Option<reader_core::vocabulary::Vocabulary>>,
 }
 
 #[derive(Serialize)]
@@ -215,7 +216,20 @@ fn prepare_session(
             )
         })
         .collect();
-    let result = serde_json::json!({"book": &parsed, "resume": resume, "normal": normal, "notes": notes, "note_plans": note_plans});
+    *store
+        .vocabulary
+        .lock()
+        .map_err(|_| "Vocabulary state unavailable")? = None;
+    let (vocabulary, vocabulary_error) =
+        match reader_core::vocabulary::Vocabulary::open(&store.root, &parsed) {
+            Ok(worker) => (Some(worker), None),
+            Err(error) => (None, Some(error)),
+        };
+    *store
+        .vocabulary
+        .lock()
+        .map_err(|_| "Vocabulary state unavailable")? = vocabulary;
+    let result = serde_json::json!({"vocabulary_error":vocabulary_error,"comfort": {"preparation":reader_core::experience::PREPARATION_MS,"ramp":reader_core::experience::RAMP_MS,"brief_pause":reader_core::experience::BRIEF_PAUSE_MS},"book": &parsed, "resume": resume, "normal": normal, "notes": notes, "note_plans": note_plans});
     *store
         .book
         .lock()
@@ -381,7 +395,28 @@ fn initialize() -> Result<Store, String> {
         root,
         book: Mutex::new(reader_core::session::book_from_value(book).map_err(|e| e.to_string())?),
         self_test,
+        vocabulary: Mutex::new(None),
     })
+}
+
+#[tauri::command]
+#[expect(clippy::needless_pass_by_value, reason = "owned IPC arguments")]
+fn vocabulary(request: Value, store: tauri::State<'_, Store>) -> Result<Value, String> {
+    let mut worker = store
+        .vocabulary
+        .lock()
+        .map_err(|_| "Vocabulary unavailable")?;
+    if worker.is_none() {
+        let book = store.book.lock().map_err(|_| "Book unavailable")?;
+        *worker = Some(reader_core::vocabulary::Vocabulary::open(
+            &store.root,
+            &book,
+        )?);
+    }
+    worker
+        .as_mut()
+        .ok_or("Vocabulary unavailable")?
+        .request(&request)
 }
 
 fn main() {
@@ -410,6 +445,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             boot,
             prepare_session,
+            vocabulary,
             read_theme,
             import_book,
             save_state,

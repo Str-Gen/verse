@@ -2,10 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 export CARGO_BUILD_JOBS=2
+export TYPESAFE_API_KEY="" VERSE_KEY_FILE=/nonexistent/verse-test-key
 cargo +1.99.0 fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo +1.99.0 clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --locked -- -D warnings
 cargo +1.99.0 test --manifest-path src-tauri/Cargo.toml --workspace --locked
-node --test tests/model.test.mjs
+node --test tests/*.test.mjs
 ./build.sh
 mkdir -p .local
 export READER_SCRATCH
