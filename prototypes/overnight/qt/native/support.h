@@ -15,6 +15,7 @@ public:
     Q_INVOKABLE void installImages(QObject *editor);
     Q_INVOKABLE QString imageHtml(const QString &html, const QString &sources);
     Q_SIGNAL void imagesReady();
+    Q_INVOKABLE bool memoryReport(bool finished, int work);
     Q_INVOKABLE void finish(int code);
     Q_INVOKABLE bool click(QObject *item, double x, double y);
     Q_INVOKABLE void pressSpace();

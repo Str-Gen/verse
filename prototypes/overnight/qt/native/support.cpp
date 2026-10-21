@@ -22,6 +22,9 @@
 #include <QPointer>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <QDir>
 void Support::finish(int code) { QCoreApplication::exit(code); }
 bool Support::capture(const QString &path) {
     for (auto *window : QGuiApplication::allWindows()) {
@@ -204,4 +207,18 @@ void Support::loadNextImage() {
                 reader.setScaledSize(size.scaled(1600, 1600, Qt::KeepAspectRatio));
             return reader.read();
         }));
+}
+
+bool Support::memoryReport(bool finished, int work) {
+    if (!qEnvironmentVariableIsSet("READER_MEMORY_TEST")) return false;
+    const auto state = qEnvironmentVariable("READER_STATE_DIR");
+    if (state.isEmpty()) return false;
+    const auto directory = state + QStringLiteral("/self-test");
+    if (!QDir().mkpath(directory)) return false;
+    QSaveFile file(directory + (finished ? QStringLiteral("/self-test.json") : QStringLiteral("/memory-phase.json")));
+    if (!file.open(QIODevice::WriteOnly)) return false;
+    const QJsonObject report = finished ? QJsonObject{{"passed", true}, {"work", work}}
+        : QJsonObject{{"phase", "reading"}};
+    if (file.write(QJsonDocument(report).toJson(QJsonDocument::Compact)) < 0) return false;
+    return file.commit();
 }

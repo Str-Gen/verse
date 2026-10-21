@@ -776,10 +776,12 @@ impl Model {
             let resume = store.restore(Some(&state)).map_err(|e| e.to_string())?;
             self.follow_notes = state["follow_notes"].as_bool().unwrap_or(false);
             self.feedback_enabled = state["feedback_enabled"].as_bool().unwrap_or(true);
-            self.history = state
+            let history = state
                 .get("qt_history")
-                .and_then(|history| serde_json::from_value(history.clone()).ok())
-                .unwrap_or_default();
+                .map(|history| serde_json::from_value(history.clone()))
+                .transpose();
+            let invalid_history = history.is_err();
+            self.history = history.unwrap_or_default().unwrap_or_default();
             self.speed = session::speed(
                 state["speed"]
                     .as_u64()
@@ -788,7 +790,12 @@ impl Model {
             );
             if matches!(resume.kind.as_str(), "exact" | "fresh") {
                 self.seek(resume.at)?;
-                self.status = "Restored passage, stopped".into();
+                self.status = if invalid_history {
+                    "Restored passage, stopped. Invalid feedback history was discarded."
+                } else {
+                    "Restored passage, stopped"
+                }
+                .into();
                 self.preserve_saved = false;
                 return Ok(());
             }
@@ -1204,9 +1211,15 @@ mod tests {
         assert_eq!(model.status, "End of book");
         let global = model.global_position();
         model.save(root.join("resume.json"))?;
+        let saved_path =
+            reader_core::persistence::record_path(&root.join("resume.json"), model.book_id());
+        let mut saved: Value = location::read_json(&saved_path)?;
+        saved["qt_history"] = json!("corrupt optional preference");
+        location::write_json(&saved_path, &saved)?;
         let mut resumed = Model::load(&path)?;
         resumed.restore(root.join("resume.json"))?;
         assert_eq!(resumed.global_position(), global);
+        assert!(resumed.status.contains("Invalid feedback history"));
         resumed.jump_chapter(0);
         assert_eq!(resumed.global_position(), 0);
         resumed.jump_chapter(1);

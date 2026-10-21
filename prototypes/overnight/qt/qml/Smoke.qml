@@ -25,6 +25,28 @@ QtObject {
     function run() {
         let reader = readerObject
         let editor = textEditor
+        if (smokeMode === "memory") {
+            const chapters = JSON.parse(reader.chapters)
+            if (phase === 0) {
+                check(chapters.length >= 2, "memory fixture has distant chapter targets")
+                check(support.memoryReport(false, 0), "native memory reading phase recorded")
+                later.interval = 100
+            } else {
+                check(reader.html.length < 262144, "native text window remains bounded after distant seek")
+                check(support.inspectDocument(editor).plainText === reader.plain_text, "distant seek retains exact native source mapping")
+                check(editor.selectedText === reader.word, "distant seek retains visible source anchor")
+            }
+            if (phase === 40) {
+                check(support.memoryReport(true, phase), "native memory work recorded")
+                console.log("MEMORY COMPLETE")
+                support.finish(0)
+            } else {
+                reader.jump_chapter(phase % 2 === 0 ? chapters.length - 1 : 0)
+                phase += 1
+                later.start()
+            }
+            return
+        }
         if (smokeMode === "windows") {
             if (phase === 0) {
                 initialHtml = reader.html

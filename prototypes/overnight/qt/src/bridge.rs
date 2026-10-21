@@ -127,6 +127,31 @@ fn argument(name: &str) -> Option<String> {
         .map(|pair| pair[1].clone())
 }
 
+fn read_last_book(directory: &std::path::Path) -> Result<Option<PathBuf>, String> {
+    use reader_core::location::{self, LocationError};
+    match location::read_json(&directory.join("last-book.json")) {
+        Ok(path) => Ok(Some(path)),
+        Err(LocationError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            use std::io::Read;
+            match std::fs::File::open(directory.join("last-book")) {
+                Ok(file) => {
+                    let mut path = String::new();
+                    file.take(4097)
+                        .read_to_string(&mut path)
+                        .map_err(|error| error.to_string())?;
+                    if path.len() > 4096 {
+                        return Err("The remembered book path is too long".into());
+                    }
+                    Ok(Some(PathBuf::from(path)))
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(format!("Cannot read the last-book path: {error}")),
+            }
+        }
+        Err(error) => Err(format!("Cannot read the last-book path: {error}")),
+    }
+}
+
 impl ffi::Reader {
     fn now(&self) -> u64 {
         self.rust().clock.map_or(0, |clock| {
@@ -214,11 +239,10 @@ impl ffi::Reader {
             });
         self.as_mut().rust_mut().state_path = directory.join("resume.json");
         let mut warning = None;
-        let remembered = match std::fs::read_to_string(directory.join("last-book")) {
-            Ok(path) => Some(path),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        let remembered = match read_last_book(&directory) {
+            Ok(path) => path.map(|path| path.to_string_lossy().into_owned()),
             Err(error) => {
-                warning = Some(format!("Cannot read the last-book path: {error}"));
+                warning = Some(error);
                 None
             }
         };
@@ -286,13 +310,14 @@ impl ffi::Reader {
                     model.status = format!("{error}. New book opened; previous state retained.");
                 }
                 if let Some(directory) = self.rust().state_path.parent() {
-                    let remembered =
-                        std::fs::canonicalize(path.to_string()).and_then(|book_path| {
-                            std::fs::create_dir_all(directory)?;
-                            std::fs::write(
-                                directory.join("last-book"),
-                                book_path.to_string_lossy().as_bytes(),
+                    let remembered = std::fs::canonicalize(path.to_string())
+                        .map_err(|error| error.to_string())
+                        .and_then(|book_path| {
+                            reader_core::location::write_json(
+                                &directory.join("last-book.json"),
+                                &book_path,
                             )
+                            .map_err(|error| error.to_string())
                         });
                     if let Err(error) = remembered {
                         model.status =
@@ -573,5 +598,27 @@ impl ffi::Reader {
         {
             self.as_mut().set_status(QString::from(error));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_last_book;
+    #[test]
+    fn remembered_path_migrates_and_rejects_corruption() -> Result<(), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(format!("qt-last-book-{}", std::process::id()));
+        std::fs::create_dir_all(&root)?;
+        assert_eq!(read_last_book(&root)?, None);
+        std::fs::write(root.join("last-book"), "/old/book.json")?;
+        assert_eq!(read_last_book(&root)?, Some("/old/book.json".into()));
+        reader_core::location::write_json(
+            &root.join("last-book.json"),
+            &std::path::PathBuf::from("/new/book.json"),
+        )?;
+        assert_eq!(read_last_book(&root)?, Some("/new/book.json".into()));
+        std::fs::write(root.join("last-book.json"), "{")?;
+        assert!(read_last_book(&root).is_err());
+        std::fs::remove_dir_all(root)?;
+        Ok(())
     }
 }
