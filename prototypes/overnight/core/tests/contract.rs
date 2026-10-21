@@ -622,3 +622,19 @@ fn forged_zip_declared_size_cannot_bypass_actual_expansion_limit() -> TestResult
     ));
     Ok(())
 }
+
+#[test]
+fn astral_symbols_stay_inside_whole_whitespace_delimited_passages() -> TestResult {
+    let xml = r#"<html xmlns="http://www.w3.org/1999/xhtml"><head/><body><p>A😀B 𝄞tone é.</p></body></html>"#;
+    let fixture = ModifiedFixture::new(&[("EPUB/a.xhtml", xml.as_bytes())])?;
+    let book = fixture.import()?;
+    let words: Vec<_> = book
+        .pieces
+        .iter()
+        .filter(|p| p.sources.iter().any(|s| s.document == "EPUB/a.xhtml"))
+        .map(|p| p.text.as_str())
+        .collect();
+    assert_eq!(words, ["A😀B", "𝄞tone", "é."]);
+    verify_sources(&fixture.path, &book, &ImportOptions::default().limits)?;
+    Ok(())
+}

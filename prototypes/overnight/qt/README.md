@@ -8,7 +8,7 @@ From the repository root, launch the synthetic demo with one command:
 ./prototypes/overnight/qt/run.sh --demo
 ```
 
-The launcher builds with at most two compiler jobs. Requirements are Rust 1.99.0, a C++ compiler, Qt 6 development tools and the Core, Gui, Qml, Quick, QuickControls2, DBus and Quick Dialogs runtime modules. This machine has Qt 6.12. No CMake or privileged installation is needed. Cargo dependencies are locked. The demo and its SVG are original, redistributable synthetic content.
+The launcher exports the shared Rust core synthetic EPUB for `--demo`, then builds with at most two compiler jobs. `--epub PATH` uses the same importer and canonical-path identity store as Tauri. See `../integration/README.md`. Requirements are Rust 1.99.0, a C++ compiler, Qt 6 development tools and the Core, Gui, Qml, Quick, QuickControls2, DBus and Quick Dialogs runtime modules. This machine has Qt 6.12. No CMake or privileged installation is needed. Cargo dependencies are locked. The demo and its SVG are original, redistributable synthetic content.
 
 For an exported book:
 
@@ -26,7 +26,7 @@ The input follows `CONTRACT.md` in the overnight workspace. `fixtures/demo.json`
 
 Source offsets count Unicode scalars. The Rust adapter maps them to UTF-16 positions used by QTextDocument and QML TextEdit, including words spanning several formatted runs and non-BMP characters. Resume stores revision plus all source spans, not a page number or piece index. Qt plain-text conversions for carriage returns, paragraph/line separators and nonbreaking spaces preserve their UTF-16 lengths. Empty text blocks follow Qt's omission behavior.
 
-Image resources can be relative local paths beside the JSON, absolute paths or local `file:` URLs. Remote image URLs are rejected. Text is escaped before HTML generation; publication HTML, scripts and CSS are never executed. Images currently use a fixed 320 × 120 layout box and show their alt text. Unsupported blocks have visible labels. Notes must be normalized as `kind: "note"` blocks with an empty top-level `notes` array; detached note arrays are rejected explicitly.
+Image resources can be relative local paths beside the JSON, absolute paths or local `file:` URLs. Remote image URLs are rejected. Text is escaped before HTML generation; publication HTML, scripts and CSS are never executed. Images currently use a fixed 320 × 120 layout box and show their alt text. Unsupported blocks have visible labels. Core embedded PNG/JPEG/WebP resources resolve by resource ID. Inline links open detached core notes in a manual dialog; they are kept outside the main playback stream. Optional note playback is still pending in Qt. Legacy `kind: "note"` blocks remain supported.
 
 State is isolated under `$XDG_STATE_HOME/overnight-qt-reader`, falling back to `~/.local/state/overnight-qt-reader`. Override it with `--state-dir DIRECTORY` or `READER_STATE_DIR`. No existing prototype storage is used. Saved JSON holds source metadata, speed, a short context of up to seven pieces and an identified chapter. It is written with owner-only permissions on Unix. The last-book file holds its local path. Reopening is always stopped. Changed editions offer a unique exact context match, or an identified chapter start, for confirmation. If neither is found, the original state remains until the reader explicitly confirms a selected replacement location. This is an exact matching heuristic, not fuzzy or semantic recovery. Legacy state without matching context stays protected.
 

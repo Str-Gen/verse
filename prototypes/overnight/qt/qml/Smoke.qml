@@ -20,6 +20,57 @@ QtObject {
     function run() {
         let reader = readerObject
         let editor = textEditor
+        if (smokeMode === "independent") {
+            let text = support.inspectDocument(editor).plainText
+            check(text === reader.plain_text, "independent export agrees with Qt native layout")
+            check(text.indexOf("unbelievable") >= 0 && text.indexOf("A😀B") >= 0 && text.indexOf("𝄞tone") >= 0, "independent Unicode words remain whole")
+            check(text.indexOf("Hidden") < 0 && text.indexOf("hidden inline") < 0 && text.indexOf("Publisher script") < 0, "independent hidden content absent in native renderer")
+            let start = text.indexOf("A😀B")
+            editor.select(start + 1, start + 3)
+            host.begin()
+            check(reader.word === "A😀B" && reader.position === start, "native UTF-16 selection resolves scalar source word")
+            reader.tick()
+            reader.pause()
+            check(reader.word === "𝄞tone", "next whole astral word displayed")
+            let last = reader.position
+            host.returnToText()
+            check(editor.selectionStart === last, "independent source round trip through native layout")
+            host.showNote("note:text.xhtml#n1")
+            check(host.noteVisible && host.noteText === "A small note.", "independent detached note retained in manual dialog")
+            host.closeNote()
+            if (screenshotPath !== "") check(support.capture(screenshotPath), "independent native screenshot saved")
+            console.log("INDEPENDENT COMPLETE")
+            support.finish(0)
+            return
+        }
+        if (smokeMode === "core") {
+            let report = support.inspectDocument(editor)
+            check(report.plainText === reader.plain_text, "integrated core text matches native UTF-16 layout")
+            check(report.italic > 0 && report.bold > 0 && report.headings > 0, "integrated core structure renders natively")
+            check(report.images === 5 && report.loadedImages === 5, "all five core raster occurrences decode in Qt")
+            host.showNote("note:EPUB/notes.xhtml#n1")
+            check(host.noteVisible && host.noteText.indexOf("manual note") >= 0, "core note link opens manual note dialog")
+            host.closeNote()
+            let joined = report.plainText.indexOf("naïveté")
+            check(joined >= 0, "whole multi-run word retained")
+            editor.select(joined + 2, joined + 5)
+            host.begin()
+            check(reader.word === "naïveté" && reader.playing, "partial multi-run selection starts whole source word")
+            reader.tick()
+            reader.pause()
+            let displayed = reader.position
+            host.returnToText()
+            check(editor.selectionStart === displayed, "integrated playback returns to last displayed source")
+            let image = report.plainText.indexOf("\ufffc")
+            reader.select(image)
+            reader.play()
+            check(!reader.playing && reader.status.indexOf("Inspect") >= 0, "core image pauses for inspection")
+            host.returnToText()
+            if (screenshotPath !== "") check(support.capture(screenshotPath), "integrated core screenshot saved")
+            console.log("CORE COMPLETE")
+            support.finish(0)
+            return
+        }
         if (smokeMode === "recover-pending" || smokeMode === "recover-confirm") {
             check(reader.recovery_needed && reader.recovery.length > 0 && !reader.playing, "changed edition offers recovery while stopped")
             if (smokeMode === "recover-pending") {

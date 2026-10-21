@@ -159,7 +159,7 @@ def generate(destination):
         manifest = '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
         manifest += ''.join(f'<item id="s{i}" href="{p}" media-type="application/xhtml+xml"/>' for i,p in enumerate(docs))
         for i,p in enumerate(assets):
-            mime = 'text/css' if p.endswith('.css') else 'image/svg+xml'
+            mime = 'text/css' if p.endswith('.css') else 'image/png' if p.endswith('.png') else 'image/svg+xml'
             manifest += f'<item id="asset{i}" href="{p}" media-type="{mime}"/>'
         spine = ''.join(f'<itemref idref="s{i}"/>' for i in range(len(docs)))
         nav = '<nav epub:type="toc"><ol>'+''.join(f'<li><a href="{escape(href)}">{escape(title)}</a></li>' for title,href in case['nav'])+'</ol></nav>'

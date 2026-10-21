@@ -4,8 +4,8 @@ Id: 11
 Parent: ../map.md
 Labels: wayfinder:prototype
 Type: prototype
-Status: claimed
-Assignee: codex
+Status: open
+Assignee:
 Blocked by: 03, 04, 05
 
 ## Question
@@ -65,3 +65,13 @@ Still requires user review and a broader EPUB corpus. Known limits include a res
 Browser verification confirmed title-page traversal without feedback, forward/back navigation within long chapters and across sections, saved-page restoration, and preserved source location after resize, without JavaScript exceptions. Chapter classification still uses limited semantics/navigation heuristics and needs broader EPUB validation.
 
 2026-10-20, user acceptance: "all works well, let's move ahead with more" after reviewing the page-browsing revision. Treat the revised front-matter distinction, conventional pagination, arrow-key browsing, and saved-page behavior as accepted interaction baselines. Remaining importer/corpus limitations are technical follow-up, not reasons to repeat the same interaction questions.
+
+## Overnight native evidence, 2026-10-21
+
+The integrated branch retains the original content-review work and adds two native renderers. Qt exercises QTextDocument/QML selection, pagination, timer playback, source return, reflow, failed-open retention and stopped restart. Tauri exercises the actual WebKitGTK DOM and Rust IPC, including optional note playback with return, image/chapter pauses, per-book state and recovery confirmation. Both consume a fresh shared-core export and the independent worker's Unicode/hidden-text EPUB. Browser mocks are not used to claim these results.
+
+The independent checker caught a tokenization error for `A😀B` and `𝄞tone`; whitespace-delimited whole passages now preserve these source spans, with a Rust regression and native selection/return checks. Qt now resolves embedded raster resources and opens detached notes manually. Its optional note playback remains unimplemented. Qt's live Omarchy theme-file watcher passes synthetic override tests without changing the actual theme.
+
+The unchanged SVG image case still fails the independent image expectation because the core emits unsupported placeholders. The same structural case with PNG resources passes ornament skipping, repeated substantive image retention and table interruption checks. Short changed-edition contexts also expose a confidence-threshold difference between the core and frontend matchers. The generic ten-action independent native trace protocol remains without drivers; current evidence uses the native application test hooks with independent content inputs.
+
+This integration uses synthetic content only. The core worker's earlier private-book verification remains historical evidence, not a new native rendering claim. User assessment of typography and visual quality is still pending. See the integration-root `MORNING-REPORT.md`; this ticket remains open.

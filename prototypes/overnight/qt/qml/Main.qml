@@ -26,7 +26,7 @@ ApplicationWindow {
     property var pages: [{ y: 0, position: 0 }]
     property int page: 0
     property bool ready: false
-    property bool shortcutsActive: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible
+    property bool shortcutsActive: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !noteDialog.visible
     property real pageY: pages[Math.min(page, pages.length - 1)].y
 
     Reader { id: reader }
@@ -134,6 +134,24 @@ ApplicationWindow {
         }
         onAccepted: { reader.confirm_selection(); window.locate() }
     }
+    property alias noteVisible: noteDialog.visible
+    property alias noteText: noteLabel.text
+    function showNote(link) {
+        if (link.startsWith("note:")) {
+            noteLabel.text = reader.note_text(link.slice(5))
+            noteDialog.open()
+        }
+    }
+    function closeNote() { noteDialog.close() }
+    Dialog {
+        id: noteDialog
+        title: "Note"
+        anchors.centerIn: parent
+        width: Math.min(window.width - 80, 600)
+        modal: true
+        standardButtons: Dialog.Close
+        contentItem: Label { id: noteLabel; textFormat: Text.PlainText; wrapMode: Text.Wrap }
+    }
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 28
@@ -170,6 +188,7 @@ ApplicationWindow {
                         height: contentHeight
                         text: reader.html
                         textFormat: TextEdit.RichText
+                        onLinkActivated: link => window.showNote(link)
                         readOnly: true
                         selectByMouse: true
                         persistentSelection: true

@@ -26,6 +26,8 @@ pub mod ffi {
         type Reader = super::ReaderRust;
 
         #[qinvokable]
+        fn note_text(self: &Reader, id: &QString) -> QString;
+        #[qinvokable]
         fn initialize(self: Pin<&mut Reader>);
         #[qinvokable]
         fn open_book(self: Pin<&mut Reader>, path: &QString);
@@ -73,6 +75,12 @@ fn argument(name: &str) -> Option<String> {
 }
 
 impl ffi::Reader {
+    pub fn note_text(&self, id: &QString) -> QString {
+        QString::from(self.rust().model.as_ref().map_or_else(
+            || "No book open".into(),
+            |model| model.note_text(&id.to_string()),
+        ))
+    }
     pub fn initialize(mut self: Pin<&mut Self>) {
         let directory = argument("--state-dir")
             .map(PathBuf::from)

@@ -81,7 +81,7 @@ export async function runTests(reader) {
     check('publisher markup remains text and external image URL is not rendered', !window.publisherRan && !$('book').querySelector('script') && !$('book').querySelector('img[src^="https:"]'));
     const core = validateBook(await (await fetch('core-demo.json')).json());
     await reader.importBook(JSON.stringify(core));
-    check('Rust-core synthetic export opens through the JSON adapter', reader.snapshot.book.pieces.length === 48 && reader.snapshot.book.chapters.length === 3);
+    check('Rust-core synthetic export opens through the JSON adapter', reader.snapshot.book.pieces.length === 49 && reader.snapshot.book.chapters.length === 3);
     await wait(80);
     check('core embedded raster resources render locally', [...$('book').querySelectorAll('img')].length === 5 && [...$('book').querySelectorAll('img')].every(img => img.complete && img.naturalWidth > 0 && img.src.startsWith('data:image/')));
     const coreJoined = core.pieces.findIndex(p => p.text === 'naïveté');
@@ -102,6 +102,21 @@ export async function runTests(reader) {
     const brokenNote = core.pieces.findIndex(p => p.kind === 'unsupported' && p.note_id);
     reader.choose(brokenNote); reader.play();
     check('unresolved core note pauses instead of disappearing', reader.snapshot.mode === 'paused'); reader.returnToText();
+    const independent = validateBook(await (await fetch('independent.json')).json());
+    await reader.importBook(JSON.stringify(independent));
+    const nativeText = $('book').textContent;
+    check('independent hidden content absent in native DOM', !nativeText.includes('Hidden') && !nativeText.includes('hidden inline') && !nativeText.includes('Publisher script'));
+    const astral = independent.pieces.findIndex(p => p.text === 'A😀B');
+    const astralElement = document.querySelector(`[data-piece="${astral}"]`);
+    const astralRange = document.createRange(); astralRange.setStart(astralElement.firstChild, 1); astralRange.setEnd(astralElement.firstChild, 3);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(astralRange);
+    astralElement.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    window.getSelection().removeAllRanges(); reader.play();
+    check('independent UTF-16 selection begins whole scalar source word', reader.snapshot.at === astral && $('word').textContent === 'A😀B');
+    reader.advance();
+    check('independent next astral word stays whole', $('word').textContent === '𝄞tone');
+    reader.returnToText();
+    check('independent source return remains at last displayed word', reader.snapshot.at === astral + 1 && reader.snapshot.page === reader.snapshot.pageForPiece.get(astral + 1));
     $('follow-notes').checked = false;
     reader.loadBook(original); if ($('recovery').open) $('accept-recovery').click(); reader.choose(joined); $('speed').value = '425'; $('speed').dispatchEvent(new Event('change')); reader.returnToText(); await reader.flush();
   } catch (error) { errors.push(`Exception: ${error.name}: ${error.message}`); }

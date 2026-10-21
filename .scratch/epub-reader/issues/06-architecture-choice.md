@@ -25,3 +25,11 @@ Choose the GUI, language boundaries, EPUB processing and rendering approach, and
 The user also requests a Tauri variant for other platforms, potentially in another fork. Proposed structure: one reusable Rust content, location, playback-policy, and persistence core with Qt/QML and Tauri adapters. Repository layout is not settled. Investigate CXX-Qt as the Rust/QML bridge; generated C++ and Qt runtime dependencies remain even when application logic is Rust. See [CXX-Qt documentation](https://kdab.github.io/cxx-qt/book/).
 
 Tauri supplies a cross-platform route, not immediate verified ports. Platform SDKs, packaging, file access, lifecycle behavior and device validation remain required. See [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). Specific first-release platform commitments remain to be settled under readiness. Rendering and Rust/QML integration evidence must precede closing this architecture ticket.
+
+## Overnight implementation evidence, 2026-10-21
+
+CXX-Qt 0.10 with Qt 6.12 and Rust 1.99 compiles and runs here. Keep Qt/QML with Rust as the Linux prototype and Tauri/WebKitGTK as a separate frontend. One standalone Rust content library/CLI normalizes EPUBs and exports source-linked schema-v1 JSON for both. Both launcher commands accept `--epub PATH` and `--demo`, using the same local identity store. No second EPUB parser was introduced.
+
+The tested boundary is a JSON process boundary, not direct library calls from both shells. Rust owns the content importer and source semantics; Qt has a Rust application model while Tauri still has JavaScript playback/recovery logic. Consolidating those policies into the Rust application layer remains open. rbook 0.7.12 remains an evaluated package reader rather than the normalizer's backend. The importer uses bounded ZIP/XML processing and a documented CSS subset.
+
+Native tests and synthetic source round trips support this prototype direction. They do not establish broad EPUB compatibility, complete accepted interaction behavior, visual acceptance or mobile releases. See `MORNING-REPORT.md` at the integration root for resource evidence and unresolved gates. Status remains open for the complete architecture specification.

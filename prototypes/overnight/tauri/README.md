@@ -87,3 +87,7 @@ Playback includes sentence/paragraph pauses and a fixed center guide. It does no
 The JSON adapter validates structure but does not independently verify source addresses against an EPUB. It trusts the core's decoded-source semantics. Changed-edition matching currently uses a five-piece exact context and chapter IDs, with confirmation. Import errors keep the current book. Startup errors are reported, but automatic repair of corrupted scratch JSON is not implemented.
 
 Native persistence writes on position changes; close-during-write durability and power-loss behavior remain unverified. Only one process should use a scratch directory at a time. See REPORT.md for measured results, platform-specific launch constraints and remaining untested gates. See PORTS.md for official-source porting steps; Windows, macOS, Android and iOS are not claimed to work.
+
+## Integrated core launcher
+
+`./prototypes/overnight/tauri/run.sh --demo` now regenerates the shared Rust core's synthetic EPUB export. `--epub PATH` imports a local EPUB through the same core CLI and identity store used by Qt. `--book-json PATH` still opens an existing export, and no arguments retain last-book behavior. See `../integration/README.md` for reproducible integrated checks and known schema boundaries. The native suite also consumes the independent worker's hidden-text/astral-Unicode export. Worker REPORT.md is historical evidence from before integration.

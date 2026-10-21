@@ -8,7 +8,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
-use unicode_segmentation::UnicodeSegmentation;
 
 struct Item {
     path: String,
@@ -727,25 +726,21 @@ fn text_pieces(blocks: &[Block], options: &ImportOptions) -> Vec<Piece> {
                 scalar_offset += source.length;
             }
         }
-        let mut ranges: Vec<(usize, usize)> = Vec::new();
-        for (start, word) in text.unicode_word_indices() {
-            let end = start + word.len();
-            if let Some(last) = ranges.last_mut() {
-                let bridge = &text[last.1..start];
-                if !bridge.is_empty()
-                    && bridge
-                        .chars()
-                        .all(|c| matches!(c, '-' | '\u{2010}' | '\u{2011}' | '\'' | '’'))
-                {
-                    last.1 = end;
-                    continue;
+        // Display passages are whitespace-delimited. Unicode word boundaries can
+        // split A😀B and attach the next symbol across a space to the prior word.
+        let mut ranges = Vec::new();
+        let mut start = None;
+        for (byte, character) in text.char_indices() {
+            if character.is_whitespace() {
+                if let Some(begin) = start.take() {
+                    ranges.push((begin, byte));
                 }
+            } else if start.is_none() {
+                start = Some(byte);
             }
-            ranges.push((start, end));
         }
-        // Include non-word symbols (including emoji) in their surrounding display passage.
-        if ranges.is_empty() && !text.trim().is_empty() {
-            ranges.push((0, text.len()));
+        if let Some(begin) = start {
+            ranges.push((begin, text.len()));
         }
         for i in 0..ranges.len() {
             let (lexical_start, lexical_end) = ranges[i];

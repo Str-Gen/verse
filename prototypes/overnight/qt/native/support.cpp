@@ -7,6 +7,7 @@
 #include <QTextBlock>
 #include <QTextFragment>
 #include <QImage>
+#include <QTextImageFormat>
 void Support::finish(int code) { QCoreApplication::exit(code); }
 bool Support::capture(const QString &path) {
     for (auto *window : QGuiApplication::allWindows()) {
@@ -20,7 +21,7 @@ QVariantMap Support::inspectDocument(QObject *editor) {
     auto *quick = qvariant_cast<QQuickTextDocument *>(editor->property("textDocument"));
     if (!quick || !quick->textDocument()) return {};
     auto *document = quick->textDocument();
-    int italic = 0, bold = 0, images = 0, headings = 0;
+    int italic = 0, bold = 0, images = 0, loadedImages = 0, headings = 0;
     for (auto block = document->begin(); block.isValid(); block = block.next()) {
         if (block.blockFormat().headingLevel() > 0) ++headings;
         for (auto iterator = block.begin(); !iterator.atEnd(); ++iterator) {
@@ -28,9 +29,13 @@ QVariantMap Support::inspectDocument(QObject *editor) {
             auto format = fragment.charFormat();
             if (format.fontItalic()) ++italic;
             if (format.fontWeight() >= QFont::Bold) ++bold;
-            if (format.isImageFormat()) ++images;
+            if (format.isImageFormat()) {
+                ++images;
+                auto resource = document->resource(QTextDocument::ImageResource, QUrl(format.toImageFormat().name()));
+                if (!qvariant_cast<QImage>(resource).isNull()) ++loadedImages;
+            }
         }
     }
     return {{"plainText", document->toPlainText()}, {"italic", italic}, {"bold", bold},
-            {"images", images}, {"headings", headings}};
+            {"images", images}, {"loadedImages", loadedImages}, {"headings", headings}};
 }

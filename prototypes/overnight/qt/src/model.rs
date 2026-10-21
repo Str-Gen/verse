@@ -14,6 +14,7 @@ struct Source {
 }
 #[derive(Deserialize)]
 struct Run {
+    note_id: Option<String>,
     text: String,
     #[serde(default)]
     emphasis: bool,
@@ -58,6 +59,16 @@ struct Chapter {
     start_piece: String,
 }
 #[derive(Deserialize)]
+struct Note {
+    id: String,
+    blocks: Vec<Block>,
+}
+#[derive(Deserialize)]
+struct Resource {
+    id: String,
+    data_url: String,
+}
+#[derive(Deserialize)]
 struct Book {
     schema_version: u32,
     book_id: String,
@@ -68,7 +79,9 @@ struct Book {
     #[serde(default)]
     chapters: Vec<Chapter>,
     #[serde(default)]
-    notes: Vec<serde_json::Value>,
+    notes: Vec<Note>,
+    #[serde(default)]
+    resources: Vec<Resource>,
 }
 #[derive(Serialize, Deserialize)]
 struct Saved {
@@ -146,6 +159,29 @@ impl Model {
             inspected_stop: None,
             recovery: None,
         })
+    }
+
+    pub fn note_text(&self, id: &str) -> String {
+        self.book
+            .notes
+            .iter()
+            .find(|note| note.id == id)
+            .map_or_else(
+                || "This note is unavailable.".into(),
+                |note| {
+                    note.blocks
+                        .iter()
+                        .map(|block| {
+                            block
+                                .runs
+                                .iter()
+                                .map(|run| run.text.as_str())
+                                .collect::<String>()
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n\n")
+                },
+            )
     }
 
     pub fn book_id(&self) -> &str {
@@ -583,11 +619,13 @@ fn local_image_uri(resource: &str, directory: &Path) -> Result<String, String> {
 }
 
 fn validate(book: &Book) -> Result<(), String> {
-    if !book.notes.is_empty() {
-        return Err("Detached notes unsupported; normalize as note blocks".into());
-    }
     let mut blocks = BTreeSet::new();
-    for block in book.documents.iter().flat_map(|doc| &doc.blocks) {
+    for block in book
+        .documents
+        .iter()
+        .flat_map(|doc| &doc.blocks)
+        .chain(book.notes.iter().flat_map(|note| &note.blocks))
+    {
         if !blocks.insert(block.id.as_str()) {
             return Err("Duplicate block ID".into());
         }
@@ -684,7 +722,22 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
         }
         if block.kind == "image" {
             if let Some(resource) = &block.resource {
-                let uri = local_image_uri(resource, directory)?;
+                let uri = if let Some(embedded) = book.resources.iter().find(|r| &r.id == resource)
+                {
+                    if ![
+                        "data:image/png;base64,",
+                        "data:image/jpeg;base64,",
+                        "data:image/webp;base64,",
+                    ]
+                    .iter()
+                    .any(|prefix| embedded.data_url.starts_with(prefix))
+                    {
+                        return Err("Unsupported embedded image format".into());
+                    }
+                    embedded.data_url.clone()
+                } else {
+                    local_image_uri(resource, directory)?
+                };
                 html.push_str(&format!(
                     "<img src=\"{}\" width=\"320\" height=\"120\" />",
                     escape(&uri)
@@ -710,6 +763,9 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
             utf16 += label.len();
         }
         for run in &block.runs {
+            if let Some(id) = &run.note_id {
+                html.push_str(&format!("<a href=\"note:{}\">", escape(id)));
+            }
             if run.emphasis {
                 html.push_str("<i>");
             }
@@ -722,6 +778,9 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
             }
             if run.emphasis {
                 html.push_str("</i>");
+            }
+            if run.note_id.is_some() {
+                html.push_str("</a>");
             }
             let mut source_index = 0;
             let mut source_offset = 0;
@@ -1126,11 +1185,14 @@ mod tests {
         let mut json: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/demo.json"))?;
         json["notes"] = serde_json::json!([{"id":"detached","text":"Synthetic note"}]);
-        assert!(
-            Model::from_json(&json.to_string(), Path::new("."))
-                .err()
-                .is_some_and(|error| error.contains("Detached notes unsupported"))
-        );
+        assert!(Model::from_json(&json.to_string(), Path::new(".")).is_err());
+        json["notes"] = serde_json::json!([{"id":"detached","blocks":[{
+            "id":"detached-block","kind":"paragraph","runs":[{"text":"Synthetic note"}]
+        }]}]);
+        let model = Model::from_json(&json.to_string(), Path::new("."))?;
+        assert!(!model.plain_text.contains("Synthetic note"));
+        assert_eq!(model.note_text("detached"), "Synthetic note");
+        assert_eq!(model.note_text("missing"), "This note is unavailable.");
         Ok(())
     }
     #[test]

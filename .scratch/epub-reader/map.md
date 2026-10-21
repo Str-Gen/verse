@@ -51,3 +51,11 @@ A build-ready specification for a Linux-first, native EPUB reader with conventio
 - DRM removal, non-EPUB formats, and graph/table-heavy books for the first release.
 - Product naming and branding.
 - Production implementation during this planning map.
+
+## Overnight integration evidence, 2026-10-21
+
+All four overnight branches were merged with ancestry retained on `overnight/20261021-integration`. The runnable layout is `prototypes/overnight/{core,qt,tauri,validation}` with integration launch/check scripts in `prototypes/overnight/integration`. Both frontends import through the same Rust CLI/library. CXX-Qt 0.10 works on this Linux host, so no handwritten C++ application-logic fallback was necessary. Qt/QML with Rust remains the preferred Linux/Omarchy direction; Tauri remains a second renderer over the content core.
+
+Native Qt and Tauri tests now consume regenerated Rust exports and independent synthetic Unicode/hidden-text fixtures. The independent oracle exposed and verified a fix for words containing astral symbols. Live Qt theme-file watching passes synthetic replacement and missing-directory tests. Source/restart/speed and changed-edition confirmation checks pass within the tested cases. See the root `MORNING-REPORT.md` and `prototypes/overnight/integration/README.md` for commands, exact outcomes, native evidence and limitations.
+
+Tickets 06, 07 and 11 remain open. Shared playback/recovery/persistence logic is not fully consolidated; the generic independent native action-trace drivers are pending; Qt optional note playback and feedback remain incomplete. SVG rendering fails the independent suite's image expectation with explicit unsupported placeholders; its PNG equivalent passes. This session did not test mobile ports or obtain user acceptance of visual quality. Accepted decoration skipping and changed-book recovery defaults remain unchanged.
