@@ -103,6 +103,17 @@ impl LocalStore {
         let path = fs::canonicalize(publication)?;
         let key = digest(path.as_os_str().as_encoded_bytes());
         let entry = self.root.join(format!("identity-{key}.json"));
+        let mut options = fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        // Keep the lock inode: unlinking it lets another importer lock a new inode
+        // while an existing importer still owns the old one.
+        let lock = options.open(entry.with_extension("lock"))?;
+        lock.lock()?;
         if entry.exists() {
             return read_json(&entry);
         }
@@ -543,6 +554,36 @@ mod tests {
         })();
         fs::remove_dir_all(&dir)?;
         result
+    }
+
+    #[test]
+    fn simultaneous_imports_assign_one_identity() -> Result<(), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(format!("reader-identity-race-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root)?;
+        let publication = root.join("book.epub");
+        fs::write(&publication, b"synthetic publication")?;
+        let store_path = root.join("store");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let mut workers = Vec::new();
+        for _ in 0..16 {
+            let publication = publication.clone();
+            let store_path = store_path.clone();
+            let barrier = std::sync::Arc::clone(&barrier);
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                let store = LocalStore::open(store_path)?;
+                store.identity_for(publication)
+            }));
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        for worker in workers {
+            ids.insert(worker.join().map_err(|_| "identity worker panicked")??);
+        }
+        assert_eq!(ids.len(), 1);
+        let reopened = LocalStore::open(&store_path)?;
+        assert!(ids.contains(&reopened.identity_for(publication)?));
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     #[test]
