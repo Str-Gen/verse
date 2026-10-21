@@ -7,6 +7,7 @@ QtObject {
     property int phase: 0
     property int anchor: 0
     property string anchorWord: ""
+    property string initialHtml: ""
     property int playbackStart: 0
     property int displayedBeforeReturn: 0
     function check(condition, label) {
@@ -24,6 +25,36 @@ QtObject {
     function run() {
         let reader = readerObject
         let editor = textEditor
+        if (smokeMode === "windows") {
+            if (phase === 0) {
+                initialHtml = reader.html
+                anchorWord = reader.word
+                reader.turn_window(1)
+                phase = 1
+                later.start()
+            } else if (phase === 1) {
+                check(reader.html !== initialHtml, "forward window replaces the native text document")
+                check(reader.chapter_index === 1, "forward window keeps the global chapter")
+                check(support.inspectDocument(editor).plainText === reader.plain_text, "forward window has exact native source coordinates")
+                check(editor.selectedText === reader.word, "forward window highlights its selected source word")
+                host.page = 0
+                host.turn(-1)
+                phase = 2
+                later.start()
+            } else if (phase === 2) {
+                check(reader.chapter_index === 0, "backward page boundary loads the preceding chapter window")
+                check(editor.selectedText === reader.word, "backward window retains the selected source word")
+                check(support.inspectDocument(editor).plainText === reader.plain_text, "backward window has exact native source coordinates")
+                reader.jump_chapter(0)
+                phase = 3
+                later.start()
+            } else {
+                check(reader.html === initialHtml && reader.word === anchorWord, "chapter jump reloads the original window and anchor")
+                console.log("WINDOWS COMPLETE")
+                support.finish(0)
+            }
+            return
+        }
         if (smokeMode === "experience") {
             let panel = host.vocabularyView
             let selected = reader.plain_text.indexOf("crossed")

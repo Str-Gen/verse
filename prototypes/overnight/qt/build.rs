@@ -7,6 +7,7 @@ fn main() {
     ]))
     .crate_include_root(Some("native".into()))
     .qt_module("Quick")
+    .qt_module("Concurrent")
     .qt_module("QuickControls2")
     .qt_module("DBus")
     .files(["src/bridge.rs", "src/native.rs"])

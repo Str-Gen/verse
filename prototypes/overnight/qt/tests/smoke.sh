@@ -44,7 +44,9 @@ for document in notes['documents']:
         if block.get('resource'):
             block['resource'] = str(pathlib.Path('fixtures', block['resource']).resolve())
 (state / 'notes.json').write_text(json.dumps(notes))
-(state / 'before.json').write_bytes((state / 'resume.json').read_bytes())
+import hashlib
+record = state / 'resume.books' / (hashlib.sha256(book['book_id'].encode()).hexdigest() + '.json')
+(state / 'before.json').write_bytes(record.read_bytes())
 span = {"document":"d", "node":"n", "offset":0, "length":17}
 compound = {"schema_version":1,"book_id":"compound-cache","revision":"v1","title":"Compound",
     "documents":[{"id":"d","blocks":[{"id":"b","kind":"paragraph","runs":[{"text":"state-of-the-art.","sources":[span]}]}]}],
@@ -53,7 +55,7 @@ compound = {"schema_version":1,"book_id":"compound-cache","revision":"v1","title
 (state / 'compound.json').write_text(json.dumps(compound))
 PYFIXTURE
 READER_SMOKE=recover-pending "$reader_binary" --book-json "$state/changed.json" 2>&1 | tee evidence/runtime/recovery-pending.log
-cmp "$state/before.json" "$state/resume.json"
+cmp "$state/before.json" "$state/resume.books/$(printf %s qt-synthetic-coast | sha256sum | cut -d' ' -f1).json"
 READER_SMOKE=recover-confirm "$reader_binary" --book-json "$state/changed.json" 2>&1 | tee evidence/runtime/recovery-confirm.log
 READER_SMOKE=resume-chapter "$reader_binary" 2>&1 | tee evidence/runtime/recovered-resume.log
 READER_STATE_DIR="$state/selection" READER_SMOKE=selection READER_SCREENSHOT="$PWD/evidence/selection.png" "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee evidence/runtime/selection.log
@@ -77,3 +79,7 @@ if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEn
 READER_STATE_DIR="$state/notes" READER_SMOKE=notes "$reader_binary" --book-json "$state/notes.json" 2>&1 | tee evidence/runtime/notes.log
 rg -q "NOTES COMPLETE" evidence/runtime/notes.log
 if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEngine failed' evidence/runtime/notes.log; then exit 1; fi
+
+READER_STATE_DIR="$state/windows" READER_SMOKE=windows "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee evidence/runtime/windows.log
+rg -q "WINDOWS COMPLETE" evidence/runtime/windows.log
+if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEngine failed' evidence/runtime/windows.log; then exit 1; fi

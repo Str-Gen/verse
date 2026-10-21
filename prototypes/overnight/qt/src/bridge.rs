@@ -20,6 +20,7 @@ pub mod ffi {
         #[qml_element]
         #[qproperty(QString, title)]
         #[qproperty(QString, html)]
+        #[qproperty(QString, images)]
         #[qproperty(QString, plain_text)]
         #[qproperty(QString, word)]
         #[qproperty(QString, status)]
@@ -43,6 +44,8 @@ pub mod ffi {
         fn vocabulary(self: Pin<&mut Reader>, request: &QString) -> QString;
         #[qinvokable]
         fn chapter_position(self: &Reader, index: i32) -> i32;
+        #[qinvokable]
+        fn turn_window(self: Pin<&mut Reader>, direction: i32);
         #[qinvokable]
         fn jump_chapter(self: Pin<&mut Reader>, index: i32);
         #[qinvokable]
@@ -87,6 +90,7 @@ pub mod ffi {
 pub struct ReaderRust {
     title: QString,
     html: QString,
+    images: QString,
     plain_text: QString,
     word: QString,
     status: QString,
@@ -111,6 +115,8 @@ pub struct ReaderRust {
     history: QString,
     model: Option<Model>,
     book_lock: Option<reader_core::persistence::BookLock>,
+    window_generation: u64,
+    window_start: usize,
     state_path: PathBuf,
 }
 
@@ -216,10 +222,22 @@ impl ffi::Reader {
                 None
             }
         };
-        let path = argument("--book-json")
+        let explicit = argument("--book-json");
+        let path = explicit
+            .clone()
             .or(remembered)
             .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/demo.json").into());
         self.as_mut().open_book(&QString::from(path));
+        if explicit.is_none() && self.rust().model.is_none() {
+            let failure = self.rust().status.to_string();
+            self.as_mut().open_book(&QString::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/fixtures/demo.json"
+            )));
+            warning = Some(format!(
+                "Cannot reopen the previous book: {failure}. Opened the demonstration."
+            ));
+        }
         if let Some(warning) = warning {
             self.set_status(QString::from(warning));
         }
@@ -249,6 +267,8 @@ impl ffi::Reader {
                 rust.clock = Some(Instant::now());
                 rust.comfort = Comfort::default();
                 rust.exposures.clear();
+                rust.window_start = 0;
+                rust.window_generation = 0;
                 rust.vocabulary = None;
                 self.as_mut().set_preparing(false);
                 let previous_error = self
@@ -296,6 +316,7 @@ impl ffi::Reader {
                 self.as_mut()
                     .set_history(QString::from(model.history_text()));
                 self.as_mut().set_title(QString::from(&model.title));
+                self.as_mut().set_images(QString::from(model.images_json()));
                 self.as_mut().set_html(QString::from(&model.html));
                 self.as_mut()
                     .set_plain_text(QString::from(&model.plain_text));
@@ -307,6 +328,45 @@ impl ffi::Reader {
     }
 
     fn sync(mut self: Pin<&mut Self>) {
+        if let Some(model) = &self.rust().model
+            && model.window_generation != self.rust().window_generation
+        {
+            let generation = model.window_generation;
+            let window_start = model.window_start;
+            let window_end = window_start + model.book().pieces.len();
+            let images = QString::from(model.images_json());
+            let html = QString::from(&model.html);
+            let plain = QString::from(&model.plain_text);
+            let mut rust = self.as_mut().rust_mut();
+            rust.window_generation = generation;
+            let old_start = rust.window_start;
+            rust.exposures.retain_mut(|exposure| {
+                let global = old_start + exposure.piece;
+                if (window_start..window_end).contains(&global) {
+                    exposure.piece = global - window_start;
+                    true
+                } else {
+                    false
+                }
+            });
+            rust.window_start = window_start;
+            rust.exposure = None;
+            let ReaderRust {
+                vocabulary, model, ..
+            } = &mut *rust;
+            if let (Some(worker), Some(model)) = (vocabulary, model) {
+                let book = model.book();
+                if let Err(error) = worker.request(&json!({"action":"open", "book": {
+                    "book_id":book.book_id, "title":book.title, "documents":book.documents, "pieces":book.pieces
+                }})) {
+                    model.status = error;
+                }
+            }
+            self.as_mut().set_images(images);
+            self.as_mut().set_html(html);
+            self.as_mut().set_plain_text(plain);
+        }
+
         if let Some(model) = &self.rust().model {
             let values = (
                 model.current_text(),
@@ -356,6 +416,14 @@ impl ffi::Reader {
             .and_then(|index| self.rust().model.as_ref()?.chapter_position(index))
             .and_then(|position| i32::try_from(position).ok())
             .unwrap_or(-1)
+    }
+    pub fn turn_window(mut self: Pin<&mut Self>, direction: i32) {
+        self.as_mut().finish_exposure();
+        if let Some(model) = &mut self.as_mut().rust_mut().model {
+            model.turn_window(direction);
+        }
+        self.as_mut().sync();
+        self.persist();
     }
     pub fn jump_chapter(mut self: Pin<&mut Self>, index: i32) {
         self.as_mut().finish_exposure();

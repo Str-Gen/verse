@@ -1,13 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::Path,
 };
 
-use reader_core::Book;
+#[cfg(test)]
+use std::fs;
+
+use reader_core::{Book, book_store::DiskBook};
 use reader_core::{location, session};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 struct Recovery {
     position: usize,
@@ -42,6 +45,10 @@ pub struct Model {
     pub speed: u32,
     pub status: String,
     book: Book,
+    store: Option<DiskBook>,
+    directory: std::path::PathBuf,
+    pub window_start: usize,
+    pub window_generation: u64,
     positions: Vec<(usize, usize)>,
     chapter_positions: Vec<usize>,
     preserve_saved: bool,
@@ -65,15 +72,27 @@ impl Model {
     }
     pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref();
-        let json = fs::read_to_string(path).map_err(|e| format!("Cannot read book JSON: {e}"))?;
-        Self::from_json(&json, path.parent().unwrap_or_else(|| Path::new(".")))
+        let store = DiskBook::open(path).map_err(|e| e.to_string())?;
+        let mut window = store.load_window(0).map_err(|e| e.to_string())?;
+        window.book.resources = store.image_resources(0).map_err(|e| e.to_string())?;
+        let mut model =
+            Self::from_book(window.book, path.parent().unwrap_or_else(|| Path::new(".")))?;
+        model.chapter_positions = store.chapter_starts().to_vec();
+        model.window_start = window.start;
+        model.store = Some(store);
+        Ok(model)
     }
 
+    #[cfg(test)]
     fn from_json(json: &str, directory: &Path) -> Result<Self, String> {
         let book: Book = session::book_from_value(
             serde_json::from_str(json).map_err(|e| format!("Invalid book JSON: {e}"))?,
         )
         .map_err(|e| format!("Invalid book JSON: {e}"))?;
+        Self::from_book(book, directory)
+    }
+
+    fn from_book(book: Book, directory: &Path) -> Result<Self, String> {
         if book.schema_version != 1 {
             return Err("Only book JSON schema version 1 is supported".into());
         }
@@ -103,6 +122,10 @@ impl Model {
             speed: 350,
             status: "Stopped".into(),
             book,
+            store: None,
+            directory: directory.to_owned(),
+            window_start: 0,
+            window_generation: 0,
             positions,
             preserve_saved: false,
             inspected_stop: None,
@@ -113,6 +136,101 @@ impl Model {
             completed_chapter: None,
             history: Vec::new(),
         })
+    }
+
+    pub fn images_json(&self) -> String {
+        let mut sources: Vec<String> = self
+            .book
+            .resources
+            .iter()
+            .map(|resource| resource.data_url.clone())
+            .collect();
+        let markers: Vec<_> = self
+            .book
+            .pieces
+            .iter()
+            .enumerate()
+            .filter(|(_, piece)| piece.kind == "image")
+            .collect();
+        let before = markers
+            .iter()
+            .filter(|(at, _)| *at < self.current)
+            .rev()
+            .take(2);
+        let after = markers.iter().filter(|(at, _)| *at >= self.current).take(3);
+        for (_, piece) in before.chain(after) {
+            if let Some(resource) = self
+                .book
+                .documents
+                .iter()
+                .flat_map(|document| &document.blocks)
+                .find(|block| block.id == piece.block_id)
+                .and_then(|block| block.resource.as_deref())
+                && !self.book.resources.iter().any(|entry| entry.id == resource)
+                && let Ok(uri) = local_image_uri(resource, &self.directory)
+                && !sources.contains(&uri)
+                && sources.len() < 5
+            {
+                sources.push(uri);
+            }
+        }
+        json!(sources).to_string()
+    }
+
+    pub fn global_position(&self) -> usize {
+        self.window_start + self.current
+    }
+
+    pub fn seek(&mut self, global: usize) -> Result<(), String> {
+        self.seek_window(global, false)
+    }
+
+    fn seek_window(&mut self, global: usize, force: bool) -> Result<(), String> {
+        let Some(store) = &self.store else {
+            self.current = global.min(self.book.pieces.len() - 1);
+            return Ok(());
+        };
+        if global >= store.total_pieces() {
+            return Err("Passage is outside this book".into());
+        }
+        if force
+            || !(self.window_start..self.window_start + self.book.pieces.len()).contains(&global)
+        {
+            let mut window = store.load_window(global).map_err(|e| e.to_string())?;
+            window.book.resources = store.image_resources(global).map_err(|e| e.to_string())?;
+            let (html, plain, positions) = render(&window.book, &self.directory)?;
+            self.book = window.book;
+            self.window_start = window.start;
+            self.html = html;
+            self.plain_text = plain;
+            self.positions = positions;
+            self.window_generation += 1;
+            self.inspected_stop = None;
+        }
+        self.current = global - self.window_start;
+        Ok(())
+    }
+
+    pub fn turn_window(&mut self, direction: i32) {
+        self.return_to_text();
+        let target = if direction < 0 {
+            self.window_start.checked_sub(1)
+        } else {
+            Some(self.window_start + self.book.pieces.len()).filter(|&at| {
+                self.store
+                    .as_ref()
+                    .is_some_and(|store| at < store.total_pieces())
+            })
+        };
+        if let Some(target) = target
+            && let Err(error) = self.seek(target)
+        {
+            self.status = error;
+        }
+    }
+
+    fn metadata(&self) -> &Book {
+        self.store.as_ref().map_or(&self.book, DiskBook::metadata)
     }
 
     pub fn note_text(&self, id: &str) -> String {
@@ -160,7 +278,7 @@ impl Model {
 
     pub fn chapters_json(&self) -> String {
         json!(
-            self.book
+            self.metadata()
                 .chapters
                 .iter()
                 .map(|c| &c.title)
@@ -172,13 +290,14 @@ impl Model {
     pub fn chapter_position(&self, index: usize) -> Option<usize> {
         self.chapter_positions
             .get(index)
-            .map(|&at| self.positions[at].0)
+            .and_then(|&at| at.checked_sub(self.window_start))
+            .and_then(|at| self.positions.get(at).map(|p| p.0))
     }
 
     pub fn chapter_index(&self) -> i32 {
         self.chapter_positions
             .iter()
-            .rposition(|&at| at <= self.current)
+            .rposition(|&at| at <= self.global_position())
             .and_then(|i| i32::try_from(i).ok())
             .unwrap_or(-1)
     }
@@ -189,7 +308,10 @@ impl Model {
         };
         self.return_to_text();
         self.completed_chapter = None;
-        self.current = at;
+        if let Err(error) = self.seek(at) {
+            self.status = error;
+            return;
+        }
         self.inspected_stop = None;
         self.status = "Selected chapter".into();
     }
@@ -256,7 +378,7 @@ impl Model {
         if self.feedback_enabled {
             self.completed_chapter = usize::try_from(self.chapter_index())
                 .ok()
-                .and_then(|i| self.book.chapters.get(i))
+                .and_then(|i| self.metadata().chapters.get(i))
                 .map(|c| c.title.clone());
         }
     }
@@ -318,6 +440,33 @@ impl Model {
             .unwrap_or(self.book.pieces.len() - 1);
         self.inspected_stop = None;
         self.status = "Selected passage".into();
+        if let Err(error) = self.refresh_images() {
+            self.status = error;
+        }
+    }
+
+    fn refresh_images(&mut self) -> Result<(), String> {
+        let Some(store) = &self.store else {
+            return Ok(());
+        };
+        let resources = store
+            .image_resources(self.global_position())
+            .map_err(|e| e.to_string())?;
+        if (!resources.is_empty() || !self.book.pieces.iter().any(|piece| piece.kind == "image"))
+            && resources
+                .iter()
+                .map(|r| &r.id)
+                .eq(self.book.resources.iter().map(|r| &r.id))
+        {
+            return Ok(());
+        }
+        self.book.resources = resources;
+        let (html, plain, positions) = render(&self.book, &self.directory)?;
+        self.html = html;
+        self.plain_text = plain;
+        self.positions = positions;
+        self.window_generation += 1;
+        Ok(())
     }
 
     pub fn start(&mut self) {
@@ -392,6 +541,13 @@ impl Model {
             self.note_playback = None;
             self.status = "Playing".into();
         }
+        if self.store.is_some() {
+            if let Err(error) = self.step_disk() {
+                self.playing = false;
+                self.status = error;
+            }
+            return;
+        }
         let Some(action) = session::playback(&self.book, self.current, self.follow_notes) else {
             return;
         };
@@ -405,6 +561,13 @@ impl Model {
             self.complete_chapter();
         }
         self.current = next;
+        if session::kind(&self.book.pieces[self.current]) == session::Kind::Image
+            && let Err(error) = self.seek_window(self.global_position(), true)
+        {
+            self.playing = false;
+            self.status = error;
+            return;
+        }
         if action.chapter_boundary {
             self.playing = false;
             self.status = "Chapter boundary. Press play to continue.".into();
@@ -421,6 +584,47 @@ impl Model {
         }
     }
 
+    fn step_disk(&mut self) -> Result<(), String> {
+        let global = self.global_position();
+        let leaving_image = session::kind(&self.book.pieces[self.current]) == session::Kind::Image;
+        let store = self.store.as_ref().ok_or("No book open")?;
+        let mut next = global + 1;
+        while next < store.total_pieces()
+            && session::skip(
+                &store.piece(next).map_err(|e| e.to_string())?,
+                self.follow_notes,
+            )
+        {
+            next += 1;
+        }
+        if next == store.total_pieces() {
+            self.complete_chapter();
+            self.playing = false;
+            self.status = "End of book".into();
+            return Ok(());
+        }
+        let boundary = self
+            .chapter_positions
+            .iter()
+            .any(|&at| at > global && at <= next);
+        if boundary {
+            self.complete_chapter();
+        }
+        self.seek(next)?;
+        if leaving_image || session::kind(&self.book.pieces[self.current]) == session::Kind::Image {
+            self.refresh_images()?;
+        }
+        if boundary {
+            self.playing = false;
+            self.status = "Chapter boundary. Press play to continue.".into();
+        } else if !self.enter_note()
+            && session::kind(&self.book.pieces[self.current]) != session::Kind::Word
+        {
+            self.stop_for_inspection();
+        }
+        Ok(())
+    }
+
     pub fn delay_ms(&self) -> u32 {
         if let Some(note) = &self.note_playback {
             let action = &note.actions[note.at];
@@ -432,6 +636,30 @@ impl Model {
     }
 
     fn skip_manual(&mut self) -> bool {
+        if let Some(store) = &self.store {
+            let mut at = self.global_position();
+            while at < store.total_pieces() {
+                match store.piece(at) {
+                    Ok(piece) if session::skip(&piece, self.follow_notes) => at += 1,
+                    Ok(_) => {
+                        if let Err(error) = self.seek(at) {
+                            self.status = error;
+                            self.playing = false;
+                            return false;
+                        }
+                        return true;
+                    }
+                    Err(error) => {
+                        self.status = error.to_string();
+                        self.playing = false;
+                        return false;
+                    }
+                }
+            }
+            self.playing = false;
+            self.status = "End of book".into();
+            return false;
+        }
         if let Some(at) = session::start(&self.book, self.current, self.follow_notes) {
             self.current = at;
             true
@@ -452,6 +680,24 @@ impl Model {
             );
         }
         let path = path.as_ref();
+        if let Some(store) = &self.store {
+            let preferences = json!({"speed":self.speed,"follow_notes":self.follow_notes,
+                "feedback_enabled":self.feedback_enabled,"qt_history":self.history});
+            let record = store
+                .capture(self.global_position(), &preferences)
+                .map_err(|e| e.to_string())?;
+            let chapter_start = self
+                .chapter_positions
+                .iter()
+                .copied()
+                .rfind(|&at| at <= self.global_position())
+                .unwrap_or(0);
+            let chapter = store
+                .capture(chapter_start, &preferences)
+                .map_err(|e| e.to_string())?;
+            return reader_core::persistence::save_record(path, self.book_id(), &record, &chapter)
+                .map_err(|e| e.to_string());
+        }
         let mut saved = read_saved(path)?;
         let mut preferences = saved
             .books
@@ -471,8 +717,12 @@ impl Model {
 
     pub fn recovery_description(&self) -> Option<String> {
         self.recovery.as_ref().map(|recovery| {
-            let start = recovery.position.saturating_sub(3);
-            let end = (recovery.position + 4).min(self.book.pieces.len());
+            let position = recovery
+                .position
+                .saturating_sub(self.window_start)
+                .min(self.book.pieces.len() - 1);
+            let start = position.saturating_sub(3);
+            let end = (position + 4).min(self.book.pieces.len());
             let preview = self.book.pieces[start..end]
                 .iter()
                 .map(|piece| piece.text.as_str())
@@ -506,7 +756,7 @@ impl Model {
             .recovery
             .take()
             .ok_or("No recovery is available to confirm")?;
-        self.current = recovery.position;
+        self.seek(recovery.position)?;
         self.playing = false;
         self.inspected_stop = None;
         self.preserve_saved = false;
@@ -517,6 +767,45 @@ impl Model {
     pub fn restore(&mut self, path: impl AsRef<Path>) -> Result<(), String> {
         self.playing = false;
         self.recovery = None;
+        if let Some(store) = &self.store {
+            let Some(state) = reader_core::persistence::load_record(path.as_ref(), self.book_id())
+                .map_err(|e| e.to_string())?
+            else {
+                return Ok(());
+            };
+            let resume = store.restore(Some(&state)).map_err(|e| e.to_string())?;
+            self.follow_notes = state["follow_notes"].as_bool().unwrap_or(false);
+            self.feedback_enabled = state["feedback_enabled"].as_bool().unwrap_or(true);
+            self.history = state
+                .get("qt_history")
+                .and_then(|history| serde_json::from_value(history.clone()).ok())
+                .unwrap_or_default();
+            self.speed = session::speed(
+                state["speed"]
+                    .as_u64()
+                    .and_then(|speed| u32::try_from(speed).ok())
+                    .unwrap_or(350),
+            );
+            if matches!(resume.kind.as_str(), "exact" | "fresh") {
+                self.seek(resume.at)?;
+                self.status = "Restored passage, stopped".into();
+                self.preserve_saved = false;
+                return Ok(());
+            }
+            self.preserve_saved = true;
+            self.recovery =
+                matches!(resume.kind.as_str(), "passage" | "chapter").then_some(Recovery {
+                    position: resume.at,
+                    description: if resume.kind == "chapter" {
+                        "Confirm to resume at the saved chapter's start, stopped."
+                    } else {
+                        "A matching passage was found. Confirm to resume there."
+                    }
+                    .into(),
+                });
+            self.status = "Saved location requires confirmation; original state preserved".into();
+            return Err(self.status.clone());
+        }
         let saved = read_saved(path.as_ref())?;
         let Some(state) = saved.books.get(&self.book.book_id) else {
             return Ok(());
@@ -761,7 +1050,10 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
                     {
                         return Err("Unsupported embedded image format".into());
                     }
-                    embedded.data_url.clone()
+                    format!(
+                        "reader-image:{:x}",
+                        Sha256::digest(embedded.data_url.as_bytes())
+                    )
                 } else {
                     local_image_uri(resource, directory)?
                 };
@@ -886,6 +1178,46 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn disk_windows_traverse_and_restore_without_retaining_the_book()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(format!("qt-disk-window-{}", std::process::id()));
+        fs::create_dir_all(&root)?;
+        let path = root.join("book.json");
+        fs::write(&path, include_str!("../fixtures/demo.json"))?;
+        let mut model = Model::load(&path)?;
+        assert!(model.book().pieces.len() <= 512);
+        let mut visited = vec![model.current_text()];
+        model.feedback_enabled = false;
+        for _ in 0..800 {
+            model.start();
+            model.step();
+            if model.status == "End of book" {
+                break;
+            }
+            visited.push(model.current_text());
+            assert!(model.book().pieces.len() <= 512);
+            assert!(model.html.len() < 100_000);
+        }
+        assert!(visited.len() > 600);
+        assert!(model.global_position() > 600);
+        assert_eq!(model.status, "End of book");
+        let global = model.global_position();
+        model.save(root.join("resume.json"))?;
+        let mut resumed = Model::load(&path)?;
+        resumed.restore(root.join("resume.json"))?;
+        assert_eq!(resumed.global_position(), global);
+        resumed.jump_chapter(0);
+        assert_eq!(resumed.global_position(), 0);
+        resumed.jump_chapter(1);
+        assert_eq!(resumed.global_position(), 472);
+        resumed.turn_window(1);
+        resumed.turn_window(-1);
+        assert!(resumed.global_position() < 472);
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
     #[test]
     fn chapter_navigation_feedback_and_preferences_round_trip()
     -> Result<(), Box<dyn std::error::Error>> {

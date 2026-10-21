@@ -8,7 +8,7 @@ From the repository root, launch the synthetic demo with one command:
 ./prototypes/overnight/qt/run.sh --demo
 ```
 
-The launcher exports the shared Rust core synthetic EPUB for `--demo`, then builds with at most two compiler jobs. `--epub PATH` uses the same importer and canonical-path identity store as Tauri. See `../integration/README.md`. Requirements are Rust 1.99.0, a C++ compiler, Qt 6 development tools and the Core, Gui, Qml, Quick, QuickControls2, DBus and Quick Dialogs runtime modules. This machine has Qt 6.12. No CMake or privileged installation is needed. Cargo dependencies are locked. The demo and its SVG are original, redistributable synthetic content.
+The launcher exports the shared Rust core synthetic EPUB for `--demo`, then builds with at most two compiler jobs. `--epub PATH` uses the same importer and canonical-path identity store as Tauri. See `../integration/README.md`. Requirements are Rust 1.99.0, a C++ compiler, Qt 6 development tools and the Core, Gui, Qml, Quick, QuickControls2, Concurrent, DBus and Quick Dialogs runtime modules. This machine has Qt 6.12. No CMake or privileged installation is needed. Cargo dependencies are locked. The demo and its SVG are original, redistributable synthetic content.
 
 For an exported book:
 
@@ -29,6 +29,12 @@ Source offsets count Unicode scalars. The Rust adapter maps them to UTF-16 posit
 Image resources can be relative local paths beside the JSON, absolute paths or local `file:` URLs. Remote image URLs are rejected. Text is escaped before HTML generation; publication HTML, scripts and CSS are never executed. Images retain their intrinsic proportions and are only reduced to fit the reading area, including after reflow. Alt text stays in image metadata; missing resources without a URI show a text fallback. Unsupported blocks have visible labels. Core embedded PNG/JPEG/WebP resources resolve by resource ID. Inline links open detached core notes in a manual dialog; they are kept outside the main playback stream. Optional note playback is still pending in Qt. Legacy `kind: "note"` blocks remain supported.
 
 State is isolated under `$XDG_STATE_HOME/overnight-qt-reader`, falling back to `~/.local/state/overnight-qt-reader`. Override it with `--state-dir DIRECTORY` or `READER_STATE_DIR`. No existing prototype storage is used. Saved JSON holds speed and the shared Rust source anchor, including up to twelve surrounding words and an identified chapter. It is written with owner-only permissions on Unix. The last-book file holds its local path. Reopening is always stopped. Changed editions use the core rule: at least eight exact words and 32 scalars occurring once, or a chapter with matching stable ID and title, for confirmation. If neither is found, the original state remains until the reader explicitly confirms a selected replacement location. This is an exact matching heuristic, not fuzzy or semantic recovery. Legacy state without matching context stays protected.
+
+The reader streams normalized JSON into a private disk spool, then keeps at most 512 playback pieces with 128 pieces of overlap in its native text window. Chapter navigation and saved anchors use global source locations. Page turns and playback replace the text window as needed; the whole publication is not retained in QTextDocument or the vocabulary worker.
+
+Image data is separate from the text window. The native cache retains the current image and up to two images on either side, decodes on a single background worker, and coalesces pending work to the latest five resources. Images use a maximum 1600-pixel edge. Leaving a section drops its decoded images; returning loads them again.
+
+Playback checkpoints every two seconds and on explicit navigation or pause. Per-book records retain a previous valid checkpoint and a separate chapter checkpoint. Different books can run concurrently; the shared publication lock prevents opening the same book in both frontends. An unavailable remembered path falls back to the demonstration while reporting the failure.
 
 ## Live theme proof
 

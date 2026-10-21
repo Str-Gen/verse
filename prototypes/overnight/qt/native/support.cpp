@@ -13,6 +13,15 @@
 #include <QTextImageFormat>
 #include <QTextCursor>
 #include <algorithm>
+#include <QCryptographicHash>
+#include <QRegularExpression>
+#include <QFutureWatcher>
+#include <QtConcurrentRun>
+#include <QImageReader>
+#include <QBuffer>
+#include <QPointer>
+#include <QJsonDocument>
+#include <QJsonArray>
 void Support::finish(int code) { QCoreApplication::exit(code); }
 bool Support::capture(const QString &path) {
     for (auto *window : QGuiApplication::allWindows()) {
@@ -99,4 +108,100 @@ void Support::pressSpace() {
     QKeyEvent release(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier, " ");
     QCoreApplication::sendEvent(window, &press);
     QCoreApplication::sendEvent(window, &release);
+}
+
+void Support::installImages(QObject *editor) {
+    auto *quick = qvariant_cast<QQuickTextDocument *>(editor->property("textDocument"));
+    if (!quick || !quick->textDocument()) return;
+    auto *document = quick->textDocument();
+    imageDocument = document;
+    imagePool.setMaxThreadCount(1);
+    document->setResourceProvider([this](const QUrl &url) -> QVariant {
+        return images.value(url.toString());
+    });
+    connect(this, &Support::imagesReady, document, [this, document]() {
+        for (auto it = images.cbegin(); it != images.cend(); ++it)
+            document->addResource(QTextDocument::ImageResource, QUrl(it.key()), it.value());
+        document->markContentsDirty(0, document->characterCount());
+    });
+}
+
+QString Support::imageHtml(const QString &html, const QString &resourceJson) {
+    static const QRegularExpression expression(QStringLiteral("<img src=\"([^\"]+)\""));
+    auto matches = expression.globalMatch(html);
+    QString output;
+    qsizetype offset = 0;
+    QSet<QString> next;
+    QList<QPair<QString, QString>> sources;
+    const auto resources = QJsonDocument::fromJson(resourceJson.toUtf8()).array();
+    for (const auto &resource : resources) {
+        const auto source = resource.toString();
+        const auto key = QStringLiteral("reader-image:") + QString::fromLatin1(
+            QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex());
+        if (next.size() == 5) break;
+        next.insert(key);
+        if (!images.contains(key) && loadingImage != key) sources.append({key, source});
+    }
+    while (matches.hasNext()) {
+        auto match = matches.next();
+        auto source = match.captured(1);
+        auto key = source.startsWith(QStringLiteral("reader-image:")) ? source : QStringLiteral("reader-image:") + QString::fromLatin1(
+            QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex());
+        output += html.mid(offset, match.capturedStart(1) - offset) + key;
+        offset = match.capturedEnd(1);
+        if (resources.isEmpty() && next.size() < 5 && !next.contains(key)) {
+            next.insert(key);
+            if (!images.contains(key) && loadingImage != key) sources.append({key, source});
+        }
+    }
+    output += html.mid(offset);
+    wanted = next;
+    for (auto it = images.begin(); it != images.end();) {
+        if (!wanted.contains(it.key())) {
+            if (imageDocument) imageDocument->addResource(QTextDocument::ImageResource, QUrl(it.key()), QImage());
+            it = images.erase(it);
+        }
+        else ++it;
+    }
+    pendingImages.clear();
+    for (const auto &source : sources) pendingImages.insert(source.first, source.second);
+    loadNextImage();
+    return output;
+}
+
+void Support::loadNextImage() {
+    if (imageLoading || pendingImages.isEmpty()) return;
+    auto source = pendingImages.begin();
+    const auto key = source.key();
+    const auto uri = source.value();
+    pendingImages.erase(source);
+    imageLoading = true;
+    loadingImage = key;
+        auto *watcher = new QFutureWatcher<QImage>(this);
+        connect(watcher, &QFutureWatcher<QImage>::finished, this, [this, watcher, key]() {
+            if (wanted.contains(key)) {
+                images.insert(key, watcher->result());
+                emit imagesReady();
+            }
+            watcher->deleteLater();
+            imageLoading = false;
+            loadingImage.clear();
+            loadNextImage();
+        });
+        watcher->setFuture(QtConcurrent::run(&imagePool, [uri]() {
+            QByteArray bytes;
+            QBuffer buffer(&bytes);
+            QImageReader reader;
+            if (uri.startsWith(QStringLiteral("data:"))) {
+                bytes = QByteArray::fromBase64(uri.mid(uri.indexOf(',') + 1).toLatin1());
+                buffer.open(QIODevice::ReadOnly);
+                reader.setDevice(&buffer);
+            } else {
+                reader.setFileName(QUrl(uri).toLocalFile());
+            }
+            auto size = reader.size();
+            if (size.width() > 1600 || size.height() > 1600)
+                reader.setScaledSize(size.scaled(1600, 1600, Qt::KeepAspectRatio));
+            return reader.read();
+        }));
 }

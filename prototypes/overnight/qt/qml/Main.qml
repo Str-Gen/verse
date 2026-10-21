@@ -97,7 +97,11 @@ ApplicationWindow {
     function turn(delta) {
         if (playback) return
         let next = Math.max(0, Math.min(pages.length - 1, page + delta))
-        if (next === page) return
+        if (next === page) {
+            reader.turn_window(delta)
+            Qt.callLater(paginate)
+            return
+        }
         page = next
         reader.select(pages[next].position)
         editor.select(reader.position, reader.end_position)
@@ -136,6 +140,10 @@ ApplicationWindow {
         feedbackDialog.close()
         if (reader.status === "End of book") returnToText()
         else { playback = true; reader.play() }
+    }
+    Connections {
+        target: support
+        function onImagesReady() { reflow.restart() }
     }
     Connections {
         target: reader
@@ -186,11 +194,13 @@ ApplicationWindow {
     }
     onClosing: reader.persist()
     Component.onCompleted: {
+        support.installImages(editor)
         reader.initialize()
         ready = true
         reflow.restart()
         if (smokeMode !== "") smokeTimer.start()
     }
+    Timer { interval: 2000; repeat: true; running: reader.playing; onTriggered: reader.persist() }
     Timer { id: reflow; interval: 80; onTriggered: window.paginate() }
     Timer {
         id: playbackTimer
@@ -345,7 +355,7 @@ ApplicationWindow {
                         y: -pageY
                         width: parent.width
                         height: contentHeight
-                        text: reader.html
+                        text: support.imageHtml(reader.html, reader.images)
                         textFormat: TextEdit.RichText
                         onLinkActivated: link => window.showNote(link)
                         readOnly: true
