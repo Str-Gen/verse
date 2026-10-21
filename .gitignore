@@ -9,6 +9,8 @@
 perf.data*
 *.profraw
 *.profdata
+/mutants.out/
+/mutants.out.old/
 *.heaptrack*
 *.log
 callgrind.out.*

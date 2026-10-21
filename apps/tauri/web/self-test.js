@@ -102,6 +102,26 @@ export async function runTests(actualReader) {
     await reader.loadBook(original); check('switching books restores independent position and speed', reader.snapshot.at === joined && reader.snapshot.speed === 425);
     try { await reader.importBook('{"schema_version":99}'); } catch { /* Expected invalid input. */ }
     check('invalid import retains current book', reader.snapshot.book.book_id === original.book_id && reader.snapshot.at === joined);
+    if (native) {
+      await reader.flush();
+      const invoke = window.__TAURI__.core.invoke;
+      const before = await invoke('boot');
+      const record = {books: {[original.book_id]: {revision: original.revision}}};
+      for (const [name, command, args] of [
+        ['stale book save', 'save_state', {state: record, at: joined, bookId: 'stale-book'}],
+        ['invalid state shape', 'save_state', {state: [], at: joined, bookId: original.book_id}],
+        ['out of range save', 'save_state', {state: record, at: Number.MAX_SAFE_INTEGER, bookId: original.book_id}],
+        ['upload without start', 'upload_book', {data: [123], start: false, finish: true}],
+        ['oversized upload chunk', 'upload_book', {data: Array(65537).fill(0), start: true, finish: false}],
+        ['truncated import', 'import_book', {json: '{"schema_version":'}],
+      ]) {
+        let rejected = false;
+        try { await invoke(command, args); } catch { rejected = true; }
+        check(`${name} is rejected by native IPC`, rejected);
+        const after = await invoke('boot');
+        check(`${name} preserves durable state and current book`, JSON.stringify(after.state) === JSON.stringify(before.state) && after.book.book_id === before.book.book_id);
+      }
+    }
     const image = original.pieces.findIndex(p => p.kind === 'image');
     await reader.choose(image - 1); reader.play(); await reader.advance();
     check('real image pauses playback at its source item', reader.snapshot.at === image && reader.snapshot.mode === 'paused');

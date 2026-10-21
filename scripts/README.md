@@ -29,6 +29,45 @@ Both commands build the same pinned Rust core, export its synthetic EPUB, build 
 
 ## Verification
 
+The common test entry point includes all workspace members, including both Rust
+frontends. Cargo's default members alone do not test Qt or Tauri.
+
+```sh
+./scripts/test.sh setup       # pinned developer tools and LLVM tools
+./scripts/test.sh unit        # Rust, browser model, Python
+./scripts/test.sh coverage    # Rust HTML/JSON and JavaScript coverage
+./scripts/test.sh native      # real Qt and WebKitGTK integration suites
+./scripts/test.sh mutants --file apps/tauri/src-tauri/src/main.rs --re 'valid_spans'
+./scripts/test.sh mutants --file apps/qt/src/model.rs --re 'local_image_uri|qt_plain_character'
+```
+
+`proptest` and `tempfile` are frontend dev dependencies. The setup command installs
+`cargo-llvm-cov` 0.9.1 and `cargo-mutants` 27.1.0 as developer executables, not
+application dependencies. Native development libraries are still required to build
+the workspace. Tests disable ranking credentials and use synthetic input.
+
+Rust coverage opens at `target/llvm-cov/html/index.html`; machine-readable results
+are in `target/llvm-cov/coverage.json`. The command also prints uncovered lines.
+This measures Rust tests, not QML, C++, or native WebView interaction coverage.
+Node reports coverage for its JavaScript test process separately. Run the native
+suite as well to exercise actual rendering, IPC, timers, and persistence.
+
+Use missing coverage to investigate untested error handling and potentially unused
+code. It is not evidence by itself that code is safe to delete. A surviving mutant
+means a behavior change escaped the selected tests, or the mutation is equivalent;
+inspect the diff and log before deciding which. Do not raise coverage with tests
+that merely execute lines without checking outcomes.
+
+Mutation runs test the unmodified baseline first and retain detailed results in
+`mutants.out/`. Each test process has a 120-second timeout and each build a
+600-second timeout. Start with a file or function; `./scripts/test.sh mutants`
+runs the entire Rust workspace and can take hours. The native UI scripts are not
+run for every mutant. Keep proptest's generated regression seeds when a property
+fails; rerun with `PROPTEST_CASES=4096 ./scripts/test.sh unit` for a larger sample.
+
+Tool references: [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) and
+[cargo-mutants](https://mutants.rs/).
+
 ```sh
 cargo +1.99.0 test --manifest-path crates/reader-core/Cargo.toml --locked -j 2
 python scripts/check_recovery.py

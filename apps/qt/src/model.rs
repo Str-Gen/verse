@@ -1811,3 +1811,7 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "model_adversarial.rs"]
+mod adversarial;
