@@ -587,6 +587,12 @@ impl DiskBook {
                 result.push(
                     serde_json::from_reader(BufReader::new(File::open(&path)?)).map_err(invalid)?,
                 );
+            } else {
+                result.push(Resource {
+                    id,
+                    media_type: String::new(),
+                    data_url: String::new(),
+                });
             }
         }
         Ok(result)
@@ -938,6 +944,47 @@ impl<'de> Visitor<'de> for DocumentSeed<'_, '_> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn absent_image_is_distinct_from_an_uncached_distant_image()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let path = std::env::temp_dir().join(format!(
+            "disk-book-missing-image-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let mut book = empty_book();
+        book.book_id = "missing-image".into();
+        book.revision = "one".into();
+        book.documents.push(Document {
+            id: "d".into(),
+            blocks: vec![Block {
+                id: "b".into(),
+                kind: "image".into(),
+                runs: Vec::new(),
+                level: None,
+                alt: Some("Missing illustration".into()),
+                resource: Some("lost.png".into()),
+                note_id: None,
+            }],
+        });
+        book.pieces.push(Piece {
+            id: "p".into(),
+            text: "".into(),
+            word_id: "".into(),
+            sources: Vec::new(),
+            block_id: "b".into(),
+            paragraph_end: false,
+            kind: "image".into(),
+            note_id: None,
+        });
+        write_json(&path, &book)?;
+        let disk = DiskBook::open(&path)?;
+        fs::remove_file(path)?;
+        let resources = disk.image_resources(0)?;
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0].id, "lost.png");
+        assert!(resources[0].data_url.is_empty());
+        Ok(())
+    }
     #[test]
     fn abandoned_spools_are_reaped_without_touching_live_readers()
     -> std::result::Result<(), Box<dyn std::error::Error>> {

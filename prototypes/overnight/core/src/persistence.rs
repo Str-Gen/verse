@@ -81,35 +81,65 @@ fn candidate(path: &Path, book_id: &str) -> Result<Option<Value>, LocationError>
 /// Malformed files remain untouched for diagnosis. Older valid state is preferred to
 /// a chapter checkpoint; legacy whole-library state is consulted only before migration.
 pub fn load_record(legacy_path: &Path, book_id: &str) -> Result<Option<Value>, LocationError> {
-    let path = record_path(legacy_path, book_id);
-    for candidate_path in [
-        &path,
-        &path.with_extension("backup.json"),
-        &path.with_extension("chapter.json"),
-    ] {
-        if let Some(record) = candidate(candidate_path, book_id)? {
+    select_record(legacy_path, book_id, |record| Ok(Some(record)))
+}
+
+/// Prefer an actually recoverable anchor over a newer, structurally valid but
+/// damaged checkpoint. Preserve the newest proposal if every revision changed.
+pub fn load_record_for_book(
+    legacy_path: &Path,
+    book: &crate::book_store::DiskBook,
+) -> Result<Option<Value>, LocationError> {
+    let mut proposal = None;
+    let exact = select_record(legacy_path, &book.metadata().book_id, |record| {
+        let resume = book.restore(Some(&record)).map_err(|error| match error {
+            crate::Error::Io(error) => LocationError::Io(error),
+            error => LocationError::InvalidLocation(error.to_string()),
+        })?;
+        if resume.kind == "exact" {
             return Ok(Some(record));
         }
+        if proposal.is_none() {
+            proposal = Some(record);
+        }
+        Ok(None)
+    })?;
+    Ok(exact.or(proposal))
+}
+
+fn select_record(
+    legacy_path: &Path,
+    book_id: &str,
+    mut select: impl FnMut(Value) -> Result<Option<Value>, LocationError>,
+) -> Result<Option<Value>, LocationError> {
+    let path = record_path(legacy_path, book_id);
+    let paths = [
+        path.clone(),
+        path.with_extension("backup.json"),
+        path.with_extension("chapter.json"),
+    ];
+    for path in &paths {
+        if let Some(record) = candidate(path, book_id)?
+            && let Some(selected) = select(record)?
+        {
+            return Ok(Some(selected));
+        }
     }
-    if path.parent().is_some_and(|p| p.exists())
-        && [
-            path.clone(),
-            path.with_extension("backup.json"),
-            path.with_extension("chapter.json"),
-        ]
-        .iter()
-        .any(|p| p.exists())
-    {
+    if paths.iter().any(|path| path.exists()) {
         return Ok(None);
     }
     match read_json::<Value>(legacy_path) {
-        Ok(legacy) => Ok(legacy["books"]
+        Ok(legacy) => match legacy["books"]
             .get(book_id)
             .filter(|v| valid_record(v, book_id))
-            .cloned()),
+            .cloned()
+        {
+            Some(record) => select(record),
+            None => Ok(None),
+        },
         Err(LocationError::Json(_) | LocationError::InvalidLocation(_)) => Ok(None),
-        Err(LocationError::Io(e)) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
+        Err(LocationError::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
     }
 }
 /// The caller holds the publication lock. Separate records avoid lost updates when
@@ -149,6 +179,47 @@ mod tests {
     use std::process::{Command, Stdio};
     use uuid::Uuid;
 
+    #[test]
+    fn schema_valid_broken_anchors_recover_backup_then_chapter()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = env::temp_dir().join(format!("reader-semantic-state-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root)?;
+        let legacy = root.join("state.json");
+        let book_path = root.join("book.json");
+        write_json(
+            &book_path,
+            &json!({"schema_version":1,"book_id":"book","revision":"r1","title":"test","documents":[],"pieces":[
+            {"id":"p0","text":"first","word_id":"w0","kind":"word","block_id":"b","sources":[{"document":"d","node":"n","offset":0,"length":5}]},
+            {"id":"p1","text":"second","word_id":"w1","kind":"word","block_id":"b","sources":[{"document":"d","node":"n","offset":6,"length":6}]}],"chapters":[{"id":"chapter","title":"Chapter","start_piece":"p0","end_piece_exclusive":null}]}),
+        )?;
+        let book = crate::book_store::DiskBook::open(&book_path)?;
+        let exact = book.capture(1, &json!({}))?;
+        let chapter = book.capture(0, &json!({}))?;
+        let path = record_path(&legacy, "book");
+        for sources in [
+            json!([]),
+            json!([{"document":"absent","node":"n","offset":0,"length":6}]),
+        ] {
+            let mut broken = exact.clone();
+            broken["location"]["sources"] = sources;
+            assert!(valid_record(&broken, "book"));
+            write_json(&path, &broken)?;
+            write_json(&path.with_extension("backup.json"), &exact)?;
+            write_json(&path.with_extension("chapter.json"), &chapter)?;
+            assert_eq!(load_record_for_book(&legacy, &book)?, Some(exact.clone()));
+            assert_eq!(load_record(&legacy, "book")?, Some(broken));
+            fs::remove_file(path.with_extension("backup.json"))?;
+            assert_eq!(load_record_for_book(&legacy, &book)?, Some(chapter.clone()));
+        }
+        let mut changed = exact.clone();
+        changed["revision"] = json!("old");
+        changed["location"]["revision"] = json!("old");
+        write_json(&path, &changed)?;
+        fs::remove_file(path.with_extension("chapter.json"))?;
+        assert_eq!(load_record_for_book(&legacy, &book)?, Some(changed));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
     #[test]
     fn truncated_records_recover_backup_then_chapter() -> Result<(), Box<dyn std::error::Error>> {
         let root = env::temp_dir().join(format!("reader-state-{}", Uuid::new_v4()));
