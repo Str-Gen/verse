@@ -825,7 +825,7 @@ fn hyphenated_compounds_split_automatically_with_connected_beats() -> TestResult
 fn streaming_export_matches_normalization_and_preserves_failed_output() -> TestResult {
     let root = std::env::temp_dir().join(format!("reader-export-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root)?;
-    let output = root.join("book.json");
+    let output = root.join("new/nested/book.json");
     for name in [
         "complex.epub",
         "legacy.epub",

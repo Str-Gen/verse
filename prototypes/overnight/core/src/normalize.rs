@@ -907,7 +907,18 @@ pub fn export_epub(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
+    let missing: Vec<_> = parent
+        .ancestors()
+        .take_while(|directory| !directory.as_os_str().is_empty() && !directory.exists())
+        .collect();
     fs::create_dir_all(parent)?;
+    for directory in missing.iter().rev() {
+        let ancestor = directory
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        fs::File::open(ancestor)?.sync_all()?;
+    }
     let mut spool = Spool::new(parent)?;
     let metadata = import_inner(path, book_id, options, Some(&mut spool))?;
     let staged = spool.root.join("export.json");
