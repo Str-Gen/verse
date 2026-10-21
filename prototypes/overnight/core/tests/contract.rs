@@ -820,3 +820,40 @@ fn hyphenated_compounds_split_automatically_with_connected_beats() -> TestResult
     );
     Ok(())
 }
+
+#[test]
+fn streaming_export_matches_normalization_and_preserves_failed_output() -> TestResult {
+    let root = std::env::temp_dir().join(format!("reader-export-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root)?;
+    let output = root.join("book.json");
+    for name in ["complex.epub", "unicode.epub", "ornaments.epub"] {
+        let path = fixture(name);
+        if !path.exists() {
+            continue;
+        }
+        let expected = import_epub(&path, "streamed-book", &ImportOptions::default())?;
+        let summary =
+            reader_core::export_epub(&path, "streamed-book", &ImportOptions::default(), &output)?;
+        let actual: Book = serde_json::from_reader(std::fs::File::open(&output)?)?;
+        assert_eq!(
+            serde_json::to_value(&actual)?,
+            serde_json::to_value(&expected)?
+        );
+        assert_eq!(summary.pieces, expected.pieces.len());
+        assert_eq!(summary.documents, expected.documents.len());
+        assert_eq!(summary.notes, expected.notes.len());
+        assert_eq!(summary.chapters, expected.chapters.len());
+        verify_sources(&path, &actual, &Limits::default())?;
+    }
+    let before = std::fs::read(&output)?;
+    let broken = root.join("broken.epub");
+    std::fs::write(&broken, b"not an EPUB")?;
+    assert!(
+        reader_core::export_epub(&broken, "streamed-book", &ImportOptions::default(), &output)
+            .is_err()
+    );
+    assert_eq!(std::fs::read(&output)?, before);
+    assert_eq!(std::fs::read_dir(&root)?.count(), 2);
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}

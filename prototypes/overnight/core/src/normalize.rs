@@ -3,10 +3,11 @@ use crate::{
     semantics::style,
     *,
 };
-use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    fs,
+    io::{BufReader, BufWriter, Write},
+    path::{Path, PathBuf},
 };
 
 struct Item {
@@ -22,22 +23,29 @@ struct Navigation {
 /// Imports a bounded EPUB using an application-assigned identity. Publisher identifiers
 /// remain metadata. Call `LocalStore::identity_for` to assign persistent local identities.
 pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Result<Book> {
+    import_inner(path, book_id, options, None)
+}
+
+fn import_inner(
+    path: &Path,
+    book_id: &str,
+    options: &ImportOptions,
+    mut spool: Option<&mut Spool>,
+) -> Result<Book> {
     let source_path = path;
     let _span = tracing::info_span!("epub_import", epub = %path.display()).entered();
     tracing::info!(code = "import_started", "Opening EPUB");
     let archive = Archive::open(path, &options.limits)?;
-    let container = xml(
-        archive.text("META-INF/container.xml")?,
-        "META-INF/container.xml",
-        &options.limits,
-    )?;
+    let container_text = archive.text("META-INF/container.xml")?;
+    let container = xml(&container_text, "META-INF/container.xml", &options.limits)?;
     let package = container
         .descendants()
         .find(|n| n.has_tag_name("rootfile"))
         .and_then(|n| n.attribute("full-path"))
         .ok_or_else(|| Error::Invalid("missing package rootfile".into()))?;
     let (package, _) = resolve("", package)?;
-    let opf = xml(archive.text(&package)?, &package, &options.limits)?;
+    let opf_text = archive.text(&package)?;
+    let opf = xml(&opf_text, &package, &options.limits)?;
     if opf.descendants().any(|n| {
         n.attribute("property") == Some("rendition:layout")
             && n.text().is_some_and(|text| text.trim() == "pre-paginated")
@@ -108,7 +116,7 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
     let mut book = Book {
         schema_version: 1,
         book_id: book_id.into(),
-        revision: format!("{:x}", Sha256::digest(&archive.bytes)),
+        revision: archive.revision()?.to_owned(),
         title,
         publisher_identifiers,
         documents: Vec::new(),
@@ -119,7 +127,11 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
         image_evidence: Vec::new(),
         diagnostics: Vec::new(),
     };
+    let wanted: BTreeSet<_> = nav.iter().map(|entry| entry.destination.as_str()).collect();
     let mut destinations = BTreeMap::new();
+    let mut ranks = BTreeMap::new();
+    let mut piece_count = 0;
+    let mut note_ids = BTreeSet::new();
     let mut non_chapters = BTreeSet::new();
     let mut occurrences = Vec::new();
     let mut next_block = 0usize;
@@ -142,7 +154,8 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
         if !visited.insert(path.clone()) {
             return Err(Error::Invalid("duplicate spine document".into()));
         }
-        let doc = xml(archive.text(&path)?, &path, &options.limits)?;
+        let document_text = archive.text(&path)?;
+        let doc = xml(&document_text, &path, &options.limits)?;
         total_scalars = total_scalars
             .checked_add(
                 doc.descendants()
@@ -197,7 +210,11 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
         let blocks = std::mem::take(&mut builder.blocks);
         let mut pieces = pieces_for(&blocks);
         for (id, (range, empty)) in &builder.anchors {
-            if let Some(piece) = pieces.iter().find(|p| {
+            let destination = format!("{path}#{id}");
+            if !wanted.contains(destination.as_str()) {
+                continue;
+            }
+            if let Some((index, piece)) = pieces.iter().enumerate().find(|(_, p)| {
                 p.sources.iter().any(|source| {
                     builder
                         .positions
@@ -205,12 +222,15 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
                         .is_some_and(|pos| range.contains(pos) || (*empty && *pos >= range.end))
                 })
             }) {
-                destinations.insert(format!("{path}#{id}"), piece.id.clone());
+                ranks.insert(piece.id.clone(), piece_count + index);
+                destinations.insert(destination, piece.id.clone());
             }
         }
-        if let Some(first) = pieces.first() {
+        if let Some(first) = pieces.first().filter(|_| wanted.contains(path.as_str())) {
+            ranks.insert(first.id.clone(), piece_count);
             destinations.insert(path.clone(), first.id.clone());
         }
+        piece_count += pieces.len();
         if linear {
             book.pieces.append(&mut pieces);
             book.documents.push(Document {
@@ -231,55 +251,35 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
             builder.flush();
             let blocks = std::mem::take(&mut builder.blocks);
             let pieces = pieces_for(&blocks);
+            let note_id = format!("{path}#{id}");
+            note_ids.insert(note_id.clone());
             book.notes.push(Note {
-                id: format!("{path}#{id}"),
+                id: note_id,
                 blocks,
                 pieces,
             });
         }
-    }
-    let (evidence, resources) = ornaments::inspect(&archive, &options.limits, &occurrences)?;
-    book.image_evidence = evidence;
-    book.resources = resources;
-    let mut image_kinds = BTreeMap::new();
-    for block in book
-        .documents
-        .iter_mut()
-        .flat_map(|d| &mut d.blocks)
-        .chain(book.notes.iter_mut().flat_map(|n| &mut n.blocks))
-    {
-        if block.kind == "image" {
-            let classification = block.resource.as_ref().map_or("unsupported", |resource| {
-                ornaments::classification(&book.image_evidence, resource)
-            });
-            block.kind = match classification {
-                "ornament" => "ornament",
-                "substantive" => "image",
-                _ => "unsupported",
-            }
-            .into();
-            image_kinds.insert(block.id.clone(), block.kind.clone());
+        if let Some(spool) = spool.as_deref_mut() {
+            crate::compound::split_book(&mut book)?;
+            spool.push(&mut book)?;
         }
     }
-    let note_ids: BTreeSet<_> = book.notes.iter().map(|n| n.id.clone()).collect();
-    for piece in book
-        .pieces
-        .iter_mut()
-        .chain(book.notes.iter_mut().flat_map(|n| &mut n.pieces))
-    {
-        if let Some(kind) = image_kinds.get(&piece.block_id) {
-            piece.kind = kind.clone();
+    if let Some(spool) = spool.as_deref_mut() {
+        book.image_evidence =
+            ornaments::inspect_to(&archive, &options.limits, &occurrences, |resource| {
+                spool.resource(&resource)
+            })?;
+        for index in 0..spool.chunks {
+            let mut chunk = spool.read(index)?;
+            finalize_content(&mut chunk, &book.image_evidence, &note_ids);
+            book.diagnostics.append(&mut chunk.diagnostics);
+            spool.replace(index, &chunk)?;
         }
-        if piece.kind == "note"
-            && !piece
-                .note_id
-                .as_ref()
-                .is_some_and(|id| note_ids.contains(id))
-        {
-            piece.kind = "unsupported".into();
-            book.diagnostics
-                .push("unresolved note reference; playback must pause".into());
-        }
+    } else {
+        let (evidence, resources) = ornaments::inspect(&archive, &options.limits, &occurrences)?;
+        finalize_content(&mut book, &evidence, &note_ids);
+        book.image_evidence = evidence;
+        book.resources = resources;
     }
     let mut seen_starts = BTreeSet::new();
     for entry in nav {
@@ -303,12 +303,6 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
                 .push("navigation target missing, hidden, or outside main text".into());
         }
     }
-    let ranks: BTreeMap<_, _> = book
-        .pieces
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (p.id.clone(), i))
-        .collect();
     book.chapters
         .sort_by_key(|c| ranks.get(&c.start_piece).copied());
     for i in 0..book.chapters.len().saturating_sub(1) {
@@ -320,7 +314,9 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
                 .into(),
         );
     }
-    crate::compound::split_book(&mut book)?;
+    if spool.is_none() {
+        crate::compound::split_book(&mut book)?;
+    }
     tracing::info!(
         code = "import_completed",
         documents = book.documents.len(),
@@ -329,6 +325,48 @@ pub fn import_epub(path: &Path, book_id: &str, options: &ImportOptions) -> Resul
         "EPUB imported"
     );
     Ok(book)
+}
+
+fn finalize_content(book: &mut Book, evidence: &[ImageEvidence], note_ids: &BTreeSet<String>) {
+    let mut image_kinds = BTreeMap::new();
+    for block in book
+        .documents
+        .iter_mut()
+        .flat_map(|d| &mut d.blocks)
+        .chain(book.notes.iter_mut().flat_map(|n| &mut n.blocks))
+    {
+        if block.kind == "image" {
+            let classification = block.resource.as_ref().map_or("unsupported", |resource| {
+                ornaments::classification(evidence, resource)
+            });
+            block.kind = match classification {
+                "ornament" => "ornament",
+                "substantive" => "image",
+                _ => "unsupported",
+            }
+            .into();
+            image_kinds.insert(block.id.clone(), block.kind.clone());
+        }
+    }
+    for piece in book
+        .pieces
+        .iter_mut()
+        .chain(book.notes.iter_mut().flat_map(|n| &mut n.pieces))
+    {
+        if let Some(kind) = image_kinds.get(&piece.block_id) {
+            piece.kind = kind.clone();
+        }
+        if piece.kind == "note"
+            && !piece
+                .note_id
+                .as_ref()
+                .is_some_and(|id| note_ids.contains(id))
+        {
+            piece.kind = "unsupported".into();
+            book.diagnostics
+                .push("unresolved note reference; playback must pause".into());
+        }
+    }
 }
 
 fn navigation(
@@ -341,7 +379,8 @@ fn navigation(
         .values()
         .find(|i| i.properties.split_whitespace().any(|p| p == "nav"))
     {
-        let doc = xml(archive.text(&item.path)?, &item.path, limits)?;
+        let text = archive.text(&item.path)?;
+        let doc = xml(&text, &item.path, limits)?;
         for nav in doc
             .descendants()
             .filter(|n| n.has_tag_name("nav") && semantic(*n, "toc"))
@@ -360,7 +399,8 @@ fn navigation(
         .values()
         .find(|i| i.media == "application/x-dtbncx+xml")
     {
-        let doc = xml(archive.text(&item.path)?, &item.path, limits)?;
+        let text = archive.text(&item.path)?;
+        let doc = xml(&text, &item.path, limits)?;
         for nav in doc.descendants().filter(|n| n.has_tag_name("navPoint")) {
             let content = nav
                 .children()
@@ -769,19 +809,18 @@ fn text_pieces(blocks: &[Block]) -> Vec<Piece> {
 /// decoded source addresses. Returns the number of checked pieces, without book text.
 pub fn verify_sources(path: &Path, book: &Book, limits: &Limits) -> Result<usize> {
     let archive = Archive::open(path, limits)?;
-    if format!("{:x}", Sha256::digest(&archive.bytes)) != book.revision {
+    if archive.revision()? != book.revision {
         return Err(Error::Invalid(
             "source verification revision mismatch".into(),
         ));
     }
     let mut nodes = BTreeMap::new();
-    for (path, bytes) in &archive.files {
+    for path in archive.paths() {
         if !(path.ends_with(".xhtml") || path.ends_with(".html") || path.ends_with(".htm")) {
             continue;
         }
-        let text =
-            std::str::from_utf8(bytes).map_err(|_| Error::Invalid("source XML encoding".into()))?;
-        let doc = xml(text, path, limits)?;
+        let text = archive.text(path)?;
+        let doc = xml(&text, path, limits)?;
         for n in doc.descendants() {
             nodes.insert(
                 (path.clone(), node_path(n)),
@@ -836,8 +875,198 @@ pub fn verify_sources(path: &Path, book: &Book, limits: &Limits) -> Result<usize
 
 /// Candidate evaluation against the exact bounded archive, without publisher text output.
 pub fn inspect_rbook(path: &Path, limits: &Limits) -> Result<usize> {
-    let archive = Archive::open(path, limits)?;
-    let epub = rbook::Epub::read(std::io::Cursor::new(archive.bytes))
+    let _archive = Archive::open(path, limits)?;
+    let epub = rbook::Epub::read(fs::File::open(path)?)
         .map_err(|_| Error::Invalid("rbook could not parse bounded archive".into()))?;
     Ok(epub.spine().len())
+}
+
+/// Counts from a streaming export. No publication text is retained in this result.
+#[derive(Debug)]
+pub struct ExportSummary {
+    pub documents: usize,
+    pub pieces: usize,
+    pub chapters: usize,
+    pub notes: usize,
+}
+
+/// Normalizes one XHTML resource at a time, then resolves cross-document metadata
+/// from disk. Output is replaced only after the completed export has been synced.
+pub fn export_epub(
+    path: &Path,
+    book_id: &str,
+    options: &ImportOptions,
+    output: &Path,
+) -> Result<ExportSummary> {
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let mut spool = Spool::new(parent)?;
+    let metadata = import_inner(path, book_id, options, Some(&mut spool))?;
+    let staged = spool.root.join("export.json");
+    let mut writer = BufWriter::new(private_file(&staged)?);
+    let mut header = serde_json::to_value(&metadata).map_err(json_error)?;
+    let fields = header
+        .as_object_mut()
+        .ok_or_else(|| Error::Invalid("invalid export metadata".into()))?;
+    for field in ["documents", "pieces", "notes", "resources"] {
+        fields.remove(field);
+    }
+    writer.write_all(b"{")?;
+    let mut first = true;
+    for (name, value) in fields {
+        if !first {
+            writer.write_all(b",")?;
+        }
+        first = false;
+        serde_json::to_writer(&mut writer, name).map_err(json_error)?;
+        writer.write_all(b":")?;
+        serde_json::to_writer(&mut writer, value).map_err(json_error)?;
+    }
+    for field in ["documents", "pieces", "notes"] {
+        write!(writer, ",\"{field}\":[")?;
+        let mut first = true;
+        for index in 0..spool.chunks {
+            let chunk = spool.read(index)?;
+            match field {
+                "documents" => write_items(&mut writer, &chunk.documents, &mut first)?,
+                "pieces" => write_items(&mut writer, &chunk.pieces, &mut first)?,
+                _ => write_items(&mut writer, &chunk.notes, &mut first)?,
+            }
+        }
+        writer.write_all(b"]")?;
+    }
+    writer.write_all(b",\"resources\":[")?;
+    for index in 0..spool.resources {
+        if index > 0 {
+            writer.write_all(b",")?;
+        }
+        std::io::copy(
+            &mut fs::File::open(spool.root.join(format!("resource-{index}.json")))?,
+            &mut writer,
+        )?;
+    }
+    writer.write_all(b"]}")?;
+    writer.flush()?;
+    writer.get_ref().sync_all()?;
+    drop(writer);
+    fs::rename(staged, output)?;
+    fs::File::open(parent)?.sync_all()?;
+    Ok(ExportSummary {
+        documents: spool.documents,
+        pieces: spool.pieces,
+        chapters: metadata.chapters.len(),
+        notes: spool.notes,
+    })
+}
+
+fn json_error(error: serde_json::Error) -> Error {
+    Error::Invalid(format!("normalized book JSON: {error}"))
+}
+fn write_items<T: serde::Serialize>(
+    writer: &mut impl Write,
+    items: &[T],
+    first: &mut bool,
+) -> Result<()> {
+    for item in items {
+        if !*first {
+            writer.write_all(b",")?;
+        }
+        *first = false;
+        serde_json::to_writer(&mut *writer, item).map_err(json_error)?;
+    }
+    Ok(())
+}
+fn private_file(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+struct Spool {
+    root: PathBuf,
+    chunks: usize,
+    resources: usize,
+    documents: usize,
+    pieces: usize,
+    notes: usize,
+}
+impl Spool {
+    fn new(parent: &Path) -> Result<Self> {
+        let root = parent.join(format!(".reader-import-{}", uuid::Uuid::new_v4()));
+        let mut builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&root)?;
+        Ok(Self {
+            root,
+            chunks: 0,
+            resources: 0,
+            documents: 0,
+            pieces: 0,
+            notes: 0,
+        })
+    }
+    fn push(&mut self, book: &mut Book) -> Result<()> {
+        let chunk = Book {
+            schema_version: 1,
+            book_id: String::new(),
+            revision: String::new(),
+            title: String::new(),
+            publisher_identifiers: Vec::new(),
+            chapters: Vec::new(),
+            resources: Vec::new(),
+            image_evidence: Vec::new(),
+            diagnostics: Vec::new(),
+            documents: std::mem::take(&mut book.documents),
+            pieces: std::mem::take(&mut book.pieces),
+            notes: std::mem::take(&mut book.notes),
+        };
+        self.documents += chunk.documents.len();
+        self.pieces += chunk.pieces.len();
+        self.notes += chunk.notes.len();
+        self.replace(self.chunks, &chunk)?;
+        self.chunks += 1;
+        Ok(())
+    }
+    fn read(&self, index: usize) -> Result<Book> {
+        serde_json::from_reader(BufReader::new(fs::File::open(
+            self.root.join(format!("chunk-{index}.json")),
+        )?))
+        .map_err(json_error)
+    }
+    fn replace(&self, index: usize, chunk: &Book) -> Result<()> {
+        let mut writer = BufWriter::new(private_file(
+            &self.root.join(format!("chunk-{index}.json")),
+        )?);
+        serde_json::to_writer(&mut writer, chunk).map_err(json_error)?;
+        writer.flush()?;
+        Ok(())
+    }
+    fn resource(&mut self, resource: &Resource) -> Result<()> {
+        let mut writer = BufWriter::new(private_file(
+            &self.root.join(format!("resource-{}.json", self.resources)),
+        )?);
+        serde_json::to_writer(&mut writer, resource).map_err(json_error)?;
+        writer.flush()?;
+        self.resources += 1;
+        Ok(())
+    }
+}
+impl Drop for Spool {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_dir_all(&self.root) {
+            tracing::warn!(code="import_spool_cleanup_failed", path=%self.root.display(), reason=%error, "Could not remove temporary import files");
+        }
+    }
 }

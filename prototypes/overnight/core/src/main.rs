@@ -1,13 +1,9 @@
 use reader_core::{
-    ImportOptions, import_epub, inspect_rbook,
+    ImportOptions, export_epub, import_epub, inspect_rbook,
     location::{LocalStore, recover_location},
     verify_sources,
 };
-use std::{
-    error::Error,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{error::Error, path::PathBuf};
 
 fn main() {
     tracing_subscriber::fmt()
@@ -59,19 +55,18 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let store = LocalStore::open(store_path)?;
-    let book = import_epub(&epub, &store.identity_for(&epub)?, &options)?;
+    let book_id = store.identity_for(&epub)?;
+    if matches!(command.as_str(), "demo" | "export") {
+        let output = output.ok_or("--output PATH is required")?;
+        let summary = export_epub(&epub, &book_id, &options, &output)?;
+        println!(
+            "Exported schema_version=1 documents={} pieces={} chapters={} notes={}",
+            summary.documents, summary.pieces, summary.chapters, summary.notes
+        );
+        return Ok(());
+    }
+    let book = import_epub(&epub, &book_id, &options)?;
     match command.as_str() {
-        "demo" | "export" => {
-            let output = output.ok_or("--output PATH is required")?;
-            write_private(&output, &serde_json::to_vec(&book)?)?;
-            println!(
-                "Exported schema_version=1 documents={} pieces={} chapters={} notes={}",
-                book.documents.len(),
-                book.pieces.len(),
-                book.chapters.len(),
-                book.notes.len()
-            );
-        }
         "check" => {
             let checked = verify_sources(&epub, &book, &options.limits)?;
             let ornaments = book
@@ -128,18 +123,4 @@ fn run() -> Result<(), Box<dyn Error>> {
         _ => return Err("unknown command".into()),
     }
     Ok(())
-}
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)?;
-    }
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options.open(path)?.write_all(bytes)
 }

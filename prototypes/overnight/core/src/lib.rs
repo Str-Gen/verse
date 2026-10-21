@@ -15,7 +15,7 @@ mod semantics;
 pub mod session;
 
 pub use archive::Limits;
-pub use normalize::{import_epub, inspect_rbook, verify_sources};
+pub use normalize::{ExportSummary, export_epub, import_epub, inspect_rbook, verify_sources};
 use serde::{Deserialize, Serialize};
 
 /// An address in decoded source XML. Valid only for its book revision.
