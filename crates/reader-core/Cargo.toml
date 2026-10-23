@@ -6,8 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-base64 = "0.22"
+base64-simd = { version = "0.8", features = ["detect"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "avif-native", "bmp", "tiff"] }
+memchr = { version = "2.7", features = ["std"] }
 percent-encoding = "2.3"
 roxmltree = "0.21"
 serde = { version = "1", features = ["derive"] }
@@ -19,6 +20,7 @@ uuid = { version = "1", features = ["v4"] }
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+base64 = "0.22"
 rbook = { version = "=0.7.12", default-features = false }
 
 [lints.rust]

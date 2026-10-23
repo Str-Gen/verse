@@ -100,3 +100,35 @@ Bounds apply to bytes as well as piece counts: 16 KiB per serialized piece, 2 Mi
 See `../integration/RELIABILITY.md` for verification and remaining limitations.
 
 `DiskBook::open_cached` reuses checksummed stores keyed by normalized input content. It stores blocks, runs, notes and image metadata in packed records with a disk-based lookup index; the full playback index remains on disk. A format-versioned cache bounds inactive entries and preserves snapshots leased by live readers. Invalid entries rebuild from the source. `DiskBook::open` remains available for transient stores and cold-path profiling. `export_epub_cached` checks the source digest, book identity, import options and output digest before reusing a normalized export.
+
+## CPU acceleration
+
+Image base64 encoding and decoding use `base64-simd` with runtime detection enabled.
+The library selects AVX2 or SSSE3 on supported x86 CPUs, NEON on supported ARM
+CPUs, and a portable fallback otherwise. Selection checks CPU and OS support and
+is cached by the library. PNG animation-marker searches use `memchr` with its
+`std` feature enabled for runtime dispatch. Short inputs and tails remain the
+libraries' responsibility. These defaults require no CPU model names, startup
+benchmark, user configuration, or `target-cpu=native` build flags.
+
+Image fingerprints feed whole rows into the existing SHA-256 implementation,
+which already detects hardware acceleration. Horizontal mirroring uses one row
+of scratch memory. Fingerprints, base64 padding, animation classification, and
+exported resource bytes retain their previous formats. Memory limits and image
+resolution limits remain independent of CPU instruction support.
+
+Run the release comparison with:
+
+```sh
+cargo run -p reader-core --release --locked --example profile_image_bytes
+```
+
+It checks results against the previous algorithms, alternates execution order,
+and prints per-operation medians and ranges for seven rounds. This is a kernel
+comparison, not a claim about total book-loading time. Tests cover binary data,
+misaligned input, SIMD boundary lengths, invalid base64, and mirrored fingerprints.
+
+Text normalization, XML parsing, and source-location logic retain their Unicode
+semantics. Further SIMD work there needs profiling evidence before replacing
+standard-library operations. Image decoding, ZIP decompression, and SHA-256
+already use specialized dependencies; this change does not replace their kernels.

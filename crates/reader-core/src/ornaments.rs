@@ -1,7 +1,6 @@
+use crate::image_bytes;
 use crate::{Error, ImageEvidence, Limits, Resource, Result, archive::Archive};
-use base64::Engine;
-use image::{ImageFormat, ImageReader, RgbaImage};
-use sha2::{Digest, Sha256};
+use image::{ImageFormat, ImageReader};
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Cursor,
@@ -50,29 +49,6 @@ fn reader<'a>(
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     reader.limits(decoder_limits);
     reader
-}
-
-fn fingerprint(pixels: &RgbaImage) -> [u8; 32] {
-    let mut smallest = [u8::MAX; 32];
-    for (horizontal, vertical) in [(false, false), (true, false), (false, true), (true, true)] {
-        let mut hash = Sha256::new();
-        hash.update(pixels.width().to_le_bytes());
-        hash.update(pixels.height().to_le_bytes());
-        for y in 0..pixels.height() {
-            for x in 0..pixels.width() {
-                let px = if horizontal {
-                    pixels.width() - 1 - x
-                } else {
-                    x
-                };
-                let py = if vertical { pixels.height() - 1 - y } else { y };
-                hash.update(pixels.get_pixel(px, py).0);
-            }
-        }
-        let candidate: [u8; 32] = hash.finalize().into();
-        smallest = smallest.min(candidate);
-    }
-    smallest
 }
 
 pub(crate) fn inspect(
@@ -168,7 +144,7 @@ pub(crate) fn inspect_to(
         // Animation evidence covers only the first frame. A conservative PNG chunk-name
         // check can retain a static image unnecessarily, but cannot justify skipping one.
         let possibly_animated = matches!(format, ImageFormat::Gif | ImageFormat::WebP)
-            || (format == ImageFormat::Png && bytes.windows(4).any(|chunk| chunk == b"acTL"));
+            || (format == ImageFormat::Png && image_bytes::possibly_animated_png(&bytes));
         if all_decorative && small && !possibly_animated {
             item.classification = "ornament".into();
             item.reason = "Every occurrence has explicit decorative semantics and empty alt text; dimensions are bounded. Repetition alone does not justify skipping.".into();
@@ -181,7 +157,7 @@ pub(crate) fn inspect_to(
             }.into();
         }
         groups
-            .entry(fingerprint(&decoded))
+            .entry(image_bytes::fingerprint(&decoded))
             .or_default()
             .push(evidence.len());
         // Both frontends render these formats directly. Normalize other decoded
@@ -205,7 +181,7 @@ pub(crate) fn inspect_to(
             media_type: render_media.into(),
             data_url: format!(
                 "data:{render_media};base64,{}",
-                base64::engine::general_purpose::STANDARD.encode(&render_bytes)
+                image_bytes::encode(&render_bytes)
             ),
         })?;
         evidence.push(item);
@@ -221,6 +197,7 @@ pub(crate) fn inspect_to(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use std::path::Path;
 
     #[test]

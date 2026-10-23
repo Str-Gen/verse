@@ -7,6 +7,7 @@ mod archive;
 pub mod book_store;
 mod cache;
 mod compound;
+mod image_bytes;
 pub mod location;
 mod normalize;
 mod ornaments;

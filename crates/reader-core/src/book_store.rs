@@ -857,13 +857,10 @@ fn oversized_note(id: &str) -> Note {
 
 /// Keep decoded image memory bounded independently of text windows.
 pub(crate) fn prepare_resource(mut resource: Resource) -> Result<Resource> {
-    use base64::Engine;
     let Some((_, encoded)) = resource.data_url.split_once(",") else {
         return Err(invalid("invalid image data URL"));
     };
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(encoded)
-        .map_err(invalid)?;
+    let bytes = crate::image_bytes::decode(encoded).map_err(invalid)?;
     let reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format()?;
     let (width, height) = reader.into_dimensions().map_err(invalid)?;
     if u64::from(width) * u64::from(height) > 40_000_000 {
@@ -881,7 +878,7 @@ pub(crate) fn prepare_resource(mut resource: Resource) -> Result<Resource> {
     resource.media_type = "image/png".into();
     resource.data_url = format!(
         "data:image/png;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(output.into_inner())
+        crate::image_bytes::encode(output.get_ref())
     );
     Ok(resource)
 }
@@ -1102,15 +1099,12 @@ impl<'de> Visitor<'de> for BookSeed<'_> {
                 "resources" => a.next_value_seed(ArraySeed(
                     |r: Resource| {
                         let r = prepare_resource(r)?;
-                        use base64::Engine;
                         let encoded = r
                             .data_url
                             .split_once(',')
                             .ok_or_else(|| invalid("invalid image data URL"))?
                             .1;
-                        let bytes = base64::engine::general_purpose::STANDARD
-                            .decode(encoded)
-                            .map_err(invalid)?;
+                        let bytes = crate::image_bytes::decode(encoded).map_err(invalid)?;
                         let (width, height) = image::ImageReader::new(std::io::Cursor::new(bytes))
                             .with_guessed_format()?
                             .into_dimensions()
