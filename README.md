@@ -45,7 +45,6 @@ GUI crates are explicit workspace members, excluded from `default-members`. Test
 
 | Dependency | Scope | Reason |
 | --- | --- | --- |
-| `rbook` | Core `dev-dependencies` | Independent EPUB parser comparison in contract tests only. The old evaluation-only CLI command is removed. |
 | `tracing-subscriber` | CLI only | JSON log setup; the reusable core and GUI crates do not initialize it. |
 | `cxx-qt-build` | Qt `build-dependencies` | Generates native bindings and QML resources. |
 | `tauri-build` | Tauri `build-dependencies` | Generates application build metadata/resources. |

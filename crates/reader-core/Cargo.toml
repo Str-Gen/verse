@@ -21,7 +21,6 @@ zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 base64 = "0.22"
-rbook = { version = "=0.7.12", default-features = false }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -248,7 +248,7 @@ ApplicationWindow {
     Timer { interval: 2000; repeat: true; running: reader.playing; onTriggered: reader.persist() }
     Timer {
         id: reflow
-        interval: 80
+        interval: bookReady ? 80 : 0
         onTriggered: {
             if (reader.loading || !ready) return
             window.paginate(true)

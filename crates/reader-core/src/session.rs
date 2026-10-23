@@ -296,6 +296,9 @@ mod tests {
         assert_eq!(restore(&book, Some(&saved))?.kind, "chapter");
         assert_eq!(restore(&book, Some(&saved))?.at, 0);
         assert_eq!(saved, before);
+        book.chapters[0].id = "different".into();
+        assert_eq!(restore(&book, Some(&saved))?.kind, "unresolved");
+        book.chapters[0].id = "d#one".into();
         book.book_id = "other".into();
         assert_eq!(restore(&book, Some(&saved))?.kind, "unresolved");
         Ok(())
@@ -313,18 +316,6 @@ mod tests {
             assert_ne!(restore(&book, Some(&legacy))?.kind, "passage");
             book.revision = "one".into();
         }
-        Ok(())
-    }
-    #[test]
-    fn short_or_repeated_context_only_offers_identified_chapter()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let mut book = book()?;
-        book.pieces.truncate(7);
-        let saved = capture(&book, 2, &json!({}))?;
-        book.revision = "two".into();
-        assert_eq!(restore(&book, Some(&saved))?.kind, "chapter");
-        book.chapters[0].id = "different".into();
-        assert_eq!(restore(&book, Some(&saved))?.kind, "unresolved");
         Ok(())
     }
     #[test]

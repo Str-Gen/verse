@@ -205,7 +205,7 @@ fn manual_notes_missing_targets_and_unsupported_content_remain_visible() -> Test
 }
 
 #[test]
-fn epub2_and_epub3_agree_on_reader_content_and_candidate_reads_both() -> TestResult {
+fn epub2_and_epub3_agree_on_reader_content() -> TestResult {
     let modern = load("complex.epub")?;
     let legacy = load("legacy.epub")?;
     assert_eq!(block_text(&modern), block_text(&legacy));
@@ -234,15 +234,8 @@ fn epub2_and_epub3_agree_on_reader_content_and_candidate_reads_both() -> TestRes
             .collect::<Vec<_>>()
     );
     assert_ne!(modern.revision, legacy.revision);
-    for name in ["complex.epub", "legacy.epub"] {
-        assert_eq!(
-            rbook::Epub::read(std::fs::File::open(fixture(name))?)?
-                .spine()
-                .len(),
-            3
-        );
-        let book = load(name)?;
-        verify_sources(&fixture(name), &book, &Limits::default())?;
+    for (name, book) in [("complex.epub", &modern), ("legacy.epub", &legacy)] {
+        verify_sources(&fixture(name), book, &Limits::default())?;
     }
     Ok(())
 }

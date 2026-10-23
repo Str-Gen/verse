@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Hard preflight bounds, applied before XML, CSS, raster decoding, or rbook evaluation.
+/// Hard preflight bounds, applied before XML, CSS, or raster decoding.
 #[derive(Clone, Debug)]
 pub struct Limits {
     pub archive_bytes: u64,
