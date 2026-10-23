@@ -5,7 +5,8 @@ use serde::{
     de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor},
 };
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+mod cached;
+mod records;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -34,10 +35,11 @@ pub struct BookWindow {
 pub struct DiskBook {
     root: PathBuf,
     _lease: File,
+    persistent: bool,
     metadata: Book,
     total: usize,
     chapter_starts: Vec<usize>,
-    buffer: Mutex<Vec<u8>>,
+    records: records::Records,
     reader: Mutex<PieceReader>,
 }
 
@@ -94,9 +96,7 @@ impl PieceReader {
 fn invalid(error: impl fmt::Display) -> Error {
     Error::Invalid(error.to_string())
 }
-fn key(id: &str) -> String {
-    format!("{:x}", Sha256::digest(id.as_bytes()))
-}
+#[cfg(test)]
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let mut file = BufWriter::new(File::create(path)?);
     serde_json::to_writer(&mut file, value).map_err(invalid)?;
@@ -179,11 +179,11 @@ impl DiskBook {
         result
     }
     fn build(path: &Path, root: PathBuf, lease: File) -> Result<Self> {
-        for name in ["blocks", "runs", "notes", "resources", "dimensions"] {
-            fs::create_dir(root.join(name))?;
-        }
         let mut sink = Sink {
-            root: &root,
+            records: records::Writer::new(&root)?,
+            block_kinds: BTreeMap::new(),
+            starts: BTreeMap::new(),
+            late_chapters: false,
             pieces: BufWriter::new(File::create(root.join("pieces"))?),
             index: BufWriter::new(File::create(root.join("index"))?),
             images: BufWriter::new(File::create(root.join("images"))?),
@@ -202,7 +202,9 @@ impl DiskBook {
         sink.index.flush()?;
         sink.images.flush()?;
         let total = sink.total;
-        drop(sink);
+        let mut starts = std::mem::take(&mut sink.starts);
+        let late_chapters = sink.late_chapters;
+        sink.records.finish(&root)?;
         let reader = Mutex::new(PieceReader {
             index: File::open(root.join("index"))?,
             pieces: BufReader::new(File::open(root.join("pieces"))?),
@@ -210,29 +212,31 @@ impl DiskBook {
         });
         let mut result = Self {
             reader,
+            records: records::Records::open(&root)?,
             root,
             _lease: lease,
+            persistent: false,
             metadata,
             total,
             chapter_starts: Vec::new(),
-            buffer: Mutex::new(Vec::new()),
         };
-        let mut starts: BTreeMap<String, Option<usize>> = result
-            .metadata
-            .chapters
-            .iter()
-            .map(|c| (c.start_piece.clone(), None))
-            .collect();
-        let reader = BufReader::new(File::open(result.root.join("pieces"))?);
-        for (index, piece) in serde_json::Deserializer::from_reader(reader)
-            .into_iter::<Piece>()
-            .enumerate()
-        {
-            let piece = piece.map_err(invalid)?;
-            if let Some(start) = starts.get_mut(&piece.id)
-                && start.replace(index).is_some()
-            {
-                return Err(invalid("duplicate chapter piece"));
+        if late_chapters {
+            let mut reader = BufReader::new(File::open(result.root.join("pieces"))?);
+            let mut line = Vec::new();
+            let mut index = 0;
+            while std::io::BufRead::read_until(&mut reader, b'\n', &mut line)? != 0 {
+                #[derive(Deserialize)]
+                struct Identity {
+                    id: String,
+                }
+                let piece: Identity = serde_json::from_slice(&line).map_err(invalid)?;
+                if let Some(start) = starts.get_mut(&piece.id)
+                    && start.replace(index).is_some()
+                {
+                    return Err(invalid("duplicate chapter piece"));
+                }
+                line.clear();
+                index += 1;
             }
         }
         for chapter in &result.metadata.chapters {
@@ -255,22 +259,10 @@ impl DiskBook {
     pub fn chapter_starts(&self) -> &[usize] {
         &self.chapter_starts
     }
-    fn read<T: de::DeserializeOwned>(&self, path: &Path) -> Result<T> {
-        let file = File::open(path)?;
-        let size = file.metadata()?.len();
-        if size > MAX_RECORD {
-            return Err(Error::Limit("disk book record"));
-        }
-        let mut buffer = self
-            .buffer
-            .lock()
-            .map_err(|_| invalid("book buffer poisoned"))?;
-        buffer.clear();
-        file.take(MAX_RECORD + 1).read_to_end(&mut buffer)?;
-        serde_json::from_slice(&buffer).map_err(invalid)
-    }
     fn named<T: de::DeserializeOwned>(&self, group: &str, id: &str) -> Result<T> {
-        self.read(&self.root.join(group).join(key(id)))
+        self.records
+            .get(group, id, MAX_RECORD)?
+            .ok_or_else(|| invalid("missing disk record"))
     }
     pub fn piece(&self, index: usize) -> Result<Piece> {
         if index >= self.total {
@@ -571,19 +563,16 @@ impl DiskBook {
         let mut boundary_blocks = None;
         let mut image_dimensions = BTreeMap::new();
         for id in ids {
-            let path = self.root.join("blocks").join(key(&id));
-            if !path.exists() {
+            let Some(mut block) = self
+                .records
+                .get::<Block>("blocks", &id, MAX_CONTEXT_BYTES)?
+            else {
                 continue;
-            }
-            if fs::metadata(&path)?.len() > MAX_CONTEXT_BYTES {
-                return Err(Error::Limit("block styling metadata bytes"));
-            }
-            let mut block: Block = self.read(&path)?;
-            if let Some(resource) = &block.resource {
-                let path = self.root.join("dimensions").join(key(resource));
-                if path.exists() {
-                    image_dimensions.insert(resource.clone(), self.read(&path)?);
-                }
+            };
+            if let Some(resource) = &block.resource
+                && let Some(dimensions) = self.records.get("dimensions", resource, MAX_RECORD)?
+            {
+                image_dimensions.insert(resource.clone(), dimensions);
             }
             let original = std::mem::take(&mut block.runs);
             let pieces: Vec<_> = book.pieces.iter().filter(|p| p.block_id == id).collect();
@@ -630,12 +619,15 @@ impl DiskBook {
             };
             if let (Some(first), Some(last)) = (first, last) {
                 for i in first..=last {
-                    let run_path = self.root.join("runs").join(key(&format!("{id}:{i}")));
-                    context_bytes = context_bytes.saturating_add(fs::metadata(&run_path)?.len());
-                    if context_bytes > MAX_CONTEXT_BYTES {
-                        return Err(Error::Limit("visible context bytes"));
-                    }
-                    let mut run: crate::Run = self.read(&run_path)?;
+                    let (mut run, length): (crate::Run, u64) = self
+                        .records
+                        .get_sized(
+                            "runs",
+                            &format!("{id}:{i}"),
+                            MAX_CONTEXT_BYTES.saturating_sub(context_bytes),
+                        )?
+                        .ok_or_else(|| invalid("missing run record"))?;
+                    context_bytes += length;
                     if (clipped_start && i == first) || (clipped_end && i == last) {
                         let mut left = usize::MAX;
                         let mut right = 0;
@@ -723,16 +715,17 @@ impl DiskBook {
             .collect();
         let mut note_bytes = 0u64;
         for id in notes {
-            let path = self.root.join("notes").join(key(id));
-            if !path.exists() {
-                continue;
-            }
-            let size = fs::metadata(&path)?.len();
-            if size > MAX_NOTE_BYTES.saturating_sub(note_bytes) {
-                book.notes.push(oversized_note(id));
-            } else {
-                note_bytes += size;
-                book.notes.push(self.read(&path)?);
+            match self
+                .records
+                .get_sized("notes", id, MAX_NOTE_BYTES.saturating_sub(note_bytes))
+            {
+                Ok(Some((note, size))) => {
+                    note_bytes += size;
+                    book.notes.push(note);
+                }
+                Ok(None) => {}
+                Err(Error::Limit(_)) => book.notes.push(oversized_note(id)),
+                Err(error) => return Err(error),
             }
         }
         Ok(BookWindow {
@@ -776,11 +769,8 @@ impl DiskBook {
             }
         }
         for id in resources {
-            let path = self.root.join("resources").join(key(&id));
-            if path.exists() {
-                result.push(
-                    serde_json::from_reader(BufReader::new(File::open(&path)?)).map_err(invalid)?,
-                );
+            if let Some(resource) = self.records.get("resources", &id, MAX_RECORD)? {
+                result.push(resource);
             } else {
                 result.push(Resource {
                     id,
@@ -794,7 +784,9 @@ impl DiskBook {
 }
 impl Drop for DiskBook {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
+        if !self.persistent {
+            let _ = fs::remove_dir_all(&self.root);
+        }
     }
 }
 
@@ -885,42 +877,65 @@ pub(crate) fn prepare_resource(mut resource: Resource) -> Result<Resource> {
     Ok(resource)
 }
 
-struct Sink<'a> {
-    root: &'a Path,
+#[derive(Deserialize)]
+struct InputPiece {
+    id: String,
+    text: String,
+    #[serde(default)]
+    word_id: Option<String>,
+    #[serde(default)]
+    sources: Vec<SourceSpan>,
+    block_id: String,
+    #[serde(default)]
+    paragraph_end: bool,
+    #[serde(default, deserialize_with = "present_kind")]
+    kind: Option<String>,
+    note_id: Option<String>,
+}
+
+fn present_kind<'de, D: de::Deserializer<'de>>(
+    decoder: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    String::deserialize(decoder).map(Some)
+}
+
+struct Sink {
+    records: records::Writer,
+    block_kinds: BTreeMap<String, String>,
+    starts: BTreeMap<String, Option<usize>>,
+    late_chapters: bool,
     pieces: BufWriter<File>,
     index: BufWriter<File>,
     images: BufWriter<File>,
     offset: u64,
     total: usize,
 }
-impl Sink<'_> {
-    fn piece(&mut self, value: Value) -> Result<()> {
-        let mut value = value;
-        if value.get("kind").is_none() {
-            let id = value["block_id"].as_str().unwrap_or_default();
-            let path = self.root.join("blocks").join(key(id));
-            let block: Option<Block> = if path.exists() {
-                Some(serde_json::from_reader(BufReader::new(File::open(path)?)).map_err(invalid)?)
-            } else {
-                None
-            };
-            let kind = block
-                .as_ref()
-                .map(|b| b.kind.as_str())
-                .unwrap_or("unsupported");
-            value["kind"] = serde_json::json!(match kind {
-                "paragraph" | "heading" | "list_item" => "word",
-                other => other,
-            });
-        }
-        if value.get("word_id").is_some_and(Value::is_null) {
-            value["word_id"] = serde_json::json!("");
-        }
-        let piece: Piece = serde_json::from_value(value).map_err(invalid)?;
-        let mut mini = empty_book();
-        mini.pieces.push(piece);
-        crate::compound::split_book(&mut mini)?;
-        for piece in mini.pieces {
+impl Sink {
+    fn piece(&mut self, input: InputPiece) -> Result<()> {
+        let kind = input.kind.unwrap_or_else(|| {
+            match self.block_kinds.get(&input.block_id).map(String::as_str) {
+                Some("paragraph" | "heading" | "list_item") => "word".into(),
+                Some(other) => other.into(),
+                None => "unsupported".into(),
+            }
+        });
+        let mut pieces = vec![Piece {
+            id: input.id,
+            text: input.text,
+            word_id: input.word_id.unwrap_or_default(),
+            sources: input.sources,
+            block_id: input.block_id,
+            paragraph_end: input.paragraph_end,
+            kind,
+            note_id: input.note_id,
+        }];
+        crate::compound::split_pieces(&mut pieces)?;
+        for piece in pieces {
+            if let Some(start) = self.starts.get_mut(&piece.id)
+                && start.replace(self.total).is_some()
+            {
+                return Err(invalid("duplicate chapter piece"));
+            }
             let bytes = serde_json::to_vec(&piece).map_err(invalid)?;
             if bytes.len() > MAX_PIECE_BYTES {
                 return Err(Error::Limit("individual playback piece bytes"));
@@ -938,16 +953,13 @@ impl Sink<'_> {
         Ok(())
     }
     fn block(&mut self, mut block: Block) -> Result<()> {
+        self.block_kinds
+            .insert(block.id.clone(), block.kind.clone());
         let mut chunks = Vec::new();
         for run in std::mem::take(&mut block.runs) {
             if run.text.is_empty() {
-                write_json(
-                    &self
-                        .root
-                        .join("runs")
-                        .join(key(&format!("{}:{}", block.id, chunks.len()))),
-                    &run,
-                )?;
+                self.records
+                    .insert("runs", &format!("{}:{}", block.id, chunks.len()), &run)?;
                 chunks.push(run);
                 continue;
             }
@@ -979,20 +991,15 @@ impl Sink<'_> {
                     }
                     position = source_end;
                 }
-                write_json(
-                    &self
-                        .root
-                        .join("runs")
-                        .join(key(&format!("{}:{}", block.id, chunks.len()))),
-                    &chunk,
-                )?;
+                self.records
+                    .insert("runs", &format!("{}:{}", block.id, chunks.len()), &chunk)?;
                 chunk.text.clear();
                 chunks.push(chunk);
                 start = end;
             }
         }
         block.runs = chunks;
-        write_json(&self.root.join("blocks").join(key(&block.id)), &block)
+        self.records.insert("blocks", &block.id, &block)
     }
 }
 fn overlaps(a: &SourceSpan, b: &SourceSpan) -> bool {
@@ -1040,14 +1047,14 @@ impl<'de, T: Deserialize<'de>, F: FnMut(T) -> Result<()>> DeserializeSeed<'de> f
         d.deserialize_seq(ArrayVisitor(self.0, self.1))
     }
 }
-struct BookSeed<'a, 'b>(&'a mut Sink<'b>);
-impl<'de> DeserializeSeed<'de> for BookSeed<'_, '_> {
+struct BookSeed<'a>(&'a mut Sink);
+impl<'de> DeserializeSeed<'de> for BookSeed<'_> {
     type Value = Book;
     fn deserialize<D: de::Deserializer<'de>>(self, d: D) -> std::result::Result<Book, D::Error> {
         d.deserialize_map(self)
     }
 }
-impl<'de> Visitor<'de> for BookSeed<'_, '_> {
+impl<'de> Visitor<'de> for BookSeed<'_> {
     type Value = Book;
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("normalized book")
@@ -1061,17 +1068,25 @@ impl<'de> Visitor<'de> for BookSeed<'_, '_> {
                 "revision" => book.revision = a.next_value()?,
                 "title" => book.title = a.next_value()?,
                 "publisher_identifiers" => book.publisher_identifiers = a.next_value()?,
-                "chapters" => book.chapters = a.next_value()?,
+                "chapters" => {
+                    book.chapters = a.next_value()?;
+                    self.0.late_chapters = self.0.total != 0;
+                    self.0.starts = book
+                        .chapters
+                        .iter()
+                        .map(|c| (c.start_piece.clone(), None))
+                        .collect();
+                }
                 "diagnostics" => book.diagnostics = a.next_value()?,
                 "pieces" => a.next_value_seed(ArraySeed(
-                    |p: Value| self.0.piece(p),
+                    |p: InputPiece| self.0.piece(p),
                     std::marker::PhantomData,
                 ))?,
                 "documents" => a.next_value_seed(DocumentsSeed(self.0))?,
                 "notes" => a.next_value_seed(ArraySeed(
                     |mut n: Note| {
                         crate::compound::split_pieces(&mut n.pieces)?;
-                        write_json(&self.0.root.join("notes").join(key(&n.id)), &n)
+                        self.0.records.insert("notes", &n.id, &n)
                     },
                     std::marker::PhantomData,
                 ))?,
@@ -1091,11 +1106,10 @@ impl<'de> Visitor<'de> for BookSeed<'_, '_> {
                             .with_guessed_format()?
                             .into_dimensions()
                             .map_err(invalid)?;
-                        write_json(
-                            &self.0.root.join("dimensions").join(key(&r.id)),
-                            &[width, height],
-                        )?;
-                        write_json(&self.0.root.join("resources").join(key(&r.id)), &r)
+                        self.0
+                            .records
+                            .insert("dimensions", &r.id, &[width, height])?;
+                        self.0.records.insert("resources", &r.id, &r)
                     },
                     std::marker::PhantomData,
                 ))?,
@@ -1110,14 +1124,14 @@ impl<'de> Visitor<'de> for BookSeed<'_, '_> {
         Ok(book)
     }
 }
-struct DocumentsSeed<'a, 'b>(&'a mut Sink<'b>);
-impl<'de> DeserializeSeed<'de> for DocumentsSeed<'_, '_> {
+struct DocumentsSeed<'a>(&'a mut Sink);
+impl<'de> DeserializeSeed<'de> for DocumentsSeed<'_> {
     type Value = ();
     fn deserialize<D: de::Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         d.deserialize_seq(self)
     }
 }
-impl<'de> Visitor<'de> for DocumentsSeed<'_, '_> {
+impl<'de> Visitor<'de> for DocumentsSeed<'_> {
     type Value = ();
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("documents")
@@ -1127,14 +1141,14 @@ impl<'de> Visitor<'de> for DocumentsSeed<'_, '_> {
         Ok(())
     }
 }
-struct DocumentSeed<'a, 'b>(&'a mut Sink<'b>);
-impl<'de> DeserializeSeed<'de> for DocumentSeed<'_, '_> {
+struct DocumentSeed<'a>(&'a mut Sink);
+impl<'de> DeserializeSeed<'de> for DocumentSeed<'_> {
     type Value = ();
     fn deserialize<D: de::Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         d.deserialize_map(self)
     }
 }
-impl<'de> Visitor<'de> for DocumentSeed<'_, '_> {
+impl<'de> Visitor<'de> for DocumentSeed<'_> {
     type Value = ();
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("document")
@@ -1158,6 +1172,55 @@ impl<'de> Visitor<'de> for DocumentSeed<'_, '_> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn chapter_field_order_and_legacy_piece_fields_are_preserved()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let path = std::env::temp_dir().join(format!("verse-order-{}.json", uuid::Uuid::new_v4()));
+        let book = crate::import_epub(
+            Path::new("fixtures/complex.epub"),
+            "order",
+            &crate::ImportOptions::default(),
+        )?;
+        let mut value = serde_json::to_value(&book)?;
+        value["pieces"][0]["word_id"] = Value::Null;
+        value["pieces"][0]
+            .as_object_mut()
+            .ok_or("piece object")?
+            .remove("kind");
+        write_json(&path, &value)?;
+        let early = DiskBook::open(&path)?;
+        let chapters = value
+            .as_object_mut()
+            .ok_or("book object")?
+            .remove("chapters")
+            .ok_or("chapters")?;
+        let mut late_json = serde_json::to_string(&value)?;
+        late_json.pop();
+        late_json.push_str(&format!(",\"chapters\":{chapters}}}"));
+        fs::write(&path, late_json)?;
+        let late = DiskBook::open(&path)?;
+        assert_eq!(early.chapter_starts(), late.chapter_starts());
+        assert_eq!(
+            serde_json::to_value(early.load_window(0)?)?,
+            serde_json::to_value(late.load_window(0)?)?
+        );
+        value["pieces"][0]["kind"] = Value::Null;
+        write_json(&path, &value)?;
+        assert!(DiskBook::open(&path).is_err());
+        value["pieces"][0]["kind"] = json!("word");
+        value["chapters"] = chapters;
+        let duplicate = value["pieces"][0].clone();
+        value["pieces"]
+            .as_array_mut()
+            .ok_or("pieces")?
+            .push(duplicate);
+        value["chapters"] = json!([{"id":"duplicate", "title":"Duplicate", "start_piece": value["pieces"][0]["id"]}]);
+        write_json(&path, &value)?;
+        assert!(DiskBook::open(&path).is_err());
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
     #[test]
     fn indexed_reads_reject_corrupt_and_truncated_records()
     -> std::result::Result<(), Box<dyn std::error::Error>> {

@@ -10,5 +10,6 @@ RUSTDOCFLAGS='-D warnings' cargo doc -p verse-qt --no-deps --locked -j 2
 ./tests/theme.sh
 ./tests/whitespace.sh
 ./tests/smoke.sh
+./tests/loading.sh
 
 ./tests/experience.sh

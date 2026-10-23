@@ -38,6 +38,12 @@ int run() {
             QObject::connect(window, &QQuickWindow::frameSwapped, &app, [&startup]() {
                 std::fprintf(stderr, "READER_FIRST_FRAME_MS=%lld\n", static_cast<long long>(startup.elapsed()));
             }, Qt::SingleShotConnection);
+            QObject::connect(window, &QQuickWindow::frameSwapped, &app, [window, &startup, reported = false]() mutable {
+                if (!reported && window->property("bookReady").toBool()) {
+                    reported = true;
+                    std::fprintf(stderr, "READER_BOOK_READY_MS=%lld\n", static_cast<long long>(startup.elapsed()));
+                }
+            });
         }
     }
     if (qEnvironmentVariableIsSet("READER_SMOKE"))

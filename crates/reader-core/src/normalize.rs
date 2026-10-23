@@ -874,12 +874,76 @@ pub fn verify_sources(path: &Path, book: &Book, limits: &Limits) -> Result<usize
 }
 
 /// Counts from a streaming export. No publication text is retained in this result.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ExportSummary {
     pub documents: usize,
     pub pieces: usize,
     pub chapters: usize,
     pub notes: usize,
+}
+
+/// Reuses an export only when both the source and exported bytes still match.
+pub fn export_epub_cached(
+    path: &Path,
+    book_id: &str,
+    options: &ImportOptions,
+    output: &Path,
+) -> Result<ExportSummary> {
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct CachedExport {
+        version: u32,
+        source: String,
+        book_id: String,
+        options: String,
+        output: String,
+        summary: ExportSummary,
+    }
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    if fs::metadata(path)?.len() > options.limits.archive_bytes {
+        return Err(Error::Limit("compressed archive bytes"));
+    }
+    let guard = fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(output.with_extension("cache-lock"))?;
+    guard.lock()?;
+    let source = crate::cache::fingerprint(path)?;
+    let settings = format!("{options:?}");
+    let manifest_path = output.with_extension("cache.json");
+    if let Ok(file) = fs::File::open(&manifest_path)
+        && file.metadata()?.len() <= 4096
+        && let Ok(cached) = serde_json::from_reader::<_, CachedExport>(BufReader::new(file))
+        && cached.version == 1
+        && cached.source == source
+        && cached.book_id == book_id
+        && cached.options == settings
+        && crate::cache::fingerprint(output).is_ok_and(|digest| digest == cached.output)
+    {
+        return Ok(cached.summary);
+    }
+    let summary = export_epub(path, book_id, options, output)?;
+    if crate::cache::fingerprint(path)? != source {
+        return Err(Error::Invalid("EPUB changed while importing".into()));
+    }
+    let cached = CachedExport {
+        version: 1,
+        source,
+        book_id: book_id.into(),
+        options: settings,
+        output: crate::cache::fingerprint(output)?,
+        summary,
+    };
+    // An incomplete manifest is a cache miss; publication still uses export_epub's atomic rename.
+    let mut writer = BufWriter::new(fs::File::create(manifest_path)?);
+    serde_json::to_writer(&mut writer, &cached).map_err(json_error)?;
+    writer.flush()?;
+    Ok(cached.summary)
 }
 
 /// Normalizes one XHTML resource at a time, then resolves cross-document metadata
@@ -1092,5 +1156,44 @@ impl Drop for Spool {
         if let Err(error) = fs::remove_dir_all(&self.root) {
             tracing::warn!(code="import_spool_cleanup_failed", path=%self.root.display(), reason=%error, "Could not remove temporary import files");
         }
+    }
+}
+
+#[cfg(test)]
+mod export_cache_tests {
+    use super::*;
+
+    #[test]
+    fn cached_export_checks_source_output_identity_and_options()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let root =
+            std::env::temp_dir().join(format!("verse-export-cache-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root)?;
+        let source = root.join("source.epub");
+        fs::copy("fixtures/complex.epub", &source)?;
+        let output = root.join("book.json");
+        let options = ImportOptions::default();
+        export_epub_cached(&source, "first", &options, &output)?;
+        let first = fs::read(&output)?;
+        let modified = fs::metadata(&output)?.modified()?;
+        export_epub_cached(&source, "first", &options, &output)?;
+        assert_eq!(modified, fs::metadata(&output)?.modified()?);
+        fs::write(&output, b"broken")?;
+        export_epub_cached(&source, "first", &options, &output)?;
+        assert_eq!(first, fs::read(&output)?);
+        export_epub_cached(&source, "second", &options, &output)?;
+        let book: Book = serde_json::from_slice(&fs::read(&output)?)?;
+        assert_eq!(book.book_id, "second");
+        let mut limited = options.clone();
+        limited.limits.entries = 1;
+        assert!(export_epub_cached(&source, "second", &limited, &output).is_err());
+        fs::write(&source, b"not an EPUB")?;
+        assert!(export_epub_cached(&source, "second", &options, &output).is_err());
+        assert_eq!(
+            book.book_id,
+            serde_json::from_slice::<Book>(&fs::read(&output)?)?.book_id
+        );
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 }

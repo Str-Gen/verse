@@ -5,6 +5,7 @@
 //! never executable publisher HTML. See the component README for the CSS support boundary.
 mod archive;
 pub mod book_store;
+mod cache;
 mod compound;
 pub mod location;
 mod normalize;
@@ -15,7 +16,7 @@ mod semantics;
 pub mod session;
 
 pub use archive::Limits;
-pub use normalize::{ExportSummary, export_epub, import_epub, verify_sources};
+pub use normalize::{ExportSummary, export_epub, export_epub_cached, import_epub, verify_sources};
 use serde::{Deserialize, Serialize};
 
 /// An address in decoded source XML. Valid only for its book revision.

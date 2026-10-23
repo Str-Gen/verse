@@ -34,10 +34,27 @@ ApplicationWindow {
     property var pages: [{ y: 0, position: 0 }]
     property int page: 0
     property bool ready: false
-    property bool shortcutsActive: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !noteDialog.visible && !feedbackDialog.visible && !historyDialog.visible && !vocabularyPanel.visible
+    property bool bookReady: false
+    property bool smokeStarted: false
+    property bool shortcutsActive: !reader.loading && !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !noteDialog.visible && !feedbackDialog.visible && !historyDialog.visible && !vocabularyPanel.visible
     property real pageY: pages[Math.min(page, pages.length - 1)].y
 
     Reader { id: reader }
+    Timer { interval: 16; repeat: true; running: reader.loading; onTriggered: reader.poll_open() }
+    Rectangle {
+        anchors.fill: parent
+        z: 100
+        visible: reader.loading
+        color: theme.background
+        opacity: 0.95
+        MouseArea { anchors.fill: parent }
+        Column {
+            anchors.centerIn: parent
+            spacing: 12
+            BusyIndicator { anchors.horizontalCenter: parent.horizontalCenter; running: reader.loading }
+            Label { text: "Opening book…"; color: theme.foreground; Accessible.name: text }
+        }
+    }
     property alias vocabularyView: vocabularyPanel
     VocabularyPanel { id: vocabularyPanel; readerObject: reader; onMessageChanged: { if (!visible && window.playback) captureNotice.restart() } }
     Timer { id: captureNotice; interval: 2500 }
@@ -158,6 +175,13 @@ ApplicationWindow {
     }
     Connections {
         target: reader
+        function onLoadingChanged() {
+            bookReady = false
+            if (!reader.loading) {
+                ready = reader.title.length > 0
+                reflow.restart()
+            }
+        }
         function onFeedback_chapterChanged() {
             if (reader.feedback_chapter.length > 0) {
                 paceBox.currentIndex = 0
@@ -207,12 +231,22 @@ ApplicationWindow {
     Component.onCompleted: {
         support.installImages(editor)
         reader.initialize()
-        ready = true
-        reflow.restart()
-        if (smokeMode !== "") smokeTimer.start()
     }
     Timer { interval: 2000; repeat: true; running: reader.playing; onTriggered: reader.persist() }
-    Timer { id: reflow; interval: 80; onTriggered: window.paginate() }
+    Timer {
+        id: reflow
+        interval: 80
+        onTriggered: {
+            if (reader.loading || !ready) return
+            window.paginate()
+            bookReady = true
+            window.update()
+            if (smokeMode !== "" && !smokeStarted) {
+                smokeStarted = true
+                smokeTimer.start()
+            }
+        }
+    }
     Timer {
         id: playbackTimer
         interval: Math.max(1, reader.delay_ms)
@@ -226,7 +260,7 @@ ApplicationWindow {
     Shortcut { sequence: "Down"; enabled: window.shortcutsActive && !playback && !controlsVisible; onActivated: moveWord(1) }
     Shortcut { sequence: "Right"; enabled: window.shortcutsActive && !playback && !speedBox.activeFocus; onActivated: turn(1) }
     Shortcut { sequence: "Left"; enabled: window.shortcutsActive && !playback && !speedBox.activeFocus; onActivated: turn(-1) }
-    Shortcut { sequence: "Space"; autoRepeat: false; enabled: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !feedbackDialog.visible; onActivated: handleSpace() }
+    Shortcut { sequence: "Space"; autoRepeat: false; enabled: !reader.loading && !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !feedbackDialog.visible; onActivated: handleSpace() }
     Shortcut { sequence: "Escape"; enabled: window.shortcutsActive; onActivated: returnToText() }
     FileDialog {
         id: openDialog
@@ -286,6 +320,7 @@ ApplicationWindow {
     }
     ColumnLayout {
         anchors.fill: parent
+        enabled: !reader.loading
         anchors.margins: 12
         anchors.bottomMargin: 22
         anchors.topMargin: Math.max(42, Math.round(window.height * 0.05))

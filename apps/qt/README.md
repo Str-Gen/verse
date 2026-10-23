@@ -16,7 +16,7 @@ To open an EPUB:
 ./apps/qt/run.sh --epub /absolute/path/book.epub
 ```
 
-The Open EPUB button imports and switches books. The importer uses the shared canonical-path identities in `scripts/.local/identities` and caches normalized books in `scripts/.local`. A failed import retains the current book. With no input argument, the app reopens its last successfully opened file, or the demo on first launch. EPUBs are imported again on reopen so changed editions use the existing location recovery. `--book-json PATH` remains available for development exports. Launcher paths are relative to the calling directory.
+The Open EPUB button imports and switches books. The importer uses the shared canonical-path identities in `scripts/.local/identities` and caches normalized books in `scripts/.local`. A failed import retains the current book. With no input argument, the app reopens its last successfully opened file, or the demo on first launch. Reopening checks the EPUB content digest, importer options, and normalized export checksum. Unchanged books reuse their export; changed editions are imported again and use the existing location recovery. `READER_IMPORT_DIR` overrides the import and identity directory for isolated runs. `--book-json PATH` remains available for development exports. Launcher paths are relative to the calling directory.
 
 Select a passage and press Space or Play selection. Space pauses or continues; Escape returns to the last displayed piece. Left/Right and Previous/Next browse conventional pages. Up/Down highlight the previous/next word within the current page. A−/A+ changes font size. Resize and typography changes retain the source anchor. The WPM control starts at 350 and is saved separately for each book. Images, unsupported pieces and logical chapter transitions pause playback. Continue advances past an inspected image. Notes open on click and are skipped in playback by default. Enable Play footnotes in the contents sidebar to read them automatically and return after the reference. Escape returns to the reference in the book. Ornaments are skipped according to the producer's classification.
 
@@ -30,11 +30,13 @@ Image resources can be relative local paths beside the JSON, absolute paths or l
 
 State is isolated under `$XDG_STATE_HOME/overnight-qt-reader`, falling back to `~/.local/state/overnight-qt-reader`. Override it with `--state-dir DIRECTORY` or `READER_STATE_DIR`. No existing prototype storage is used. Saved JSON holds speed and the shared Rust source anchor, including up to twelve surrounding words and an identified chapter. It is written with owner-only permissions on Unix. The atomically replaced `last-book.json` holds its local path; the older plaintext hint is read during migration. Reopening is always stopped. Changed editions use the core rule: at least eight exact words and 32 scalars occurring once, or a chapter with matching stable ID and title, for confirmation. If neither is found, the original state remains until the reader explicitly confirms a selected replacement location. This is an exact matching heuristic, not fuzzy or semantic recovery. Legacy state without matching context stays protected.
 
-The reader streams normalized JSON into a private disk spool, then lays out the current chapter in Qt. The page counter covers that entire chapter and recalculates for the available viewport and font size. Turning a page within a chapter does not reload or reflow its text. Chapter navigation and saved anchors use global source locations. Moving to another chapter replaces the resident chapter; front matter before the first chapter has its own page count. A publication without chapter boundaries is laid out as one chapter. Image decoding remains separately bounded.
+The reader streams normalized JSON into indexed files, then lays out the current chapter in Qt. Blocks, runs, notes and resources share a packed record file and a disk index. Content-checked stores are reused under `$XDG_CACHE_HOME/quiet-reader/indexed-books-v1`, with `~/.cache` as fallback. The cache retains eight entries unless additional books are held by live readers. Checksums detect incomplete or damaged entries and trigger a rebuild. The page counter covers that entire chapter and recalculates for the available viewport and font size. Turning a page within a chapter does not reload or reflow its text. Chapter navigation and saved anchors use global source locations. Moving to another chapter replaces the resident chapter; front matter before the first chapter has its own page count. A publication without chapter boundaries is laid out as one chapter. Image decoding remains separately bounded.
 
 Image data is separate from the text window. The native cache retains the current image and up to two images on either side, decodes on a single background worker, and coalesces pending work to the latest five resources. Images use a maximum 1600-pixel edge. Leaving a section drops its decoded images; returning loads them again.
 
 Playback checkpoints every two seconds and on explicit navigation or pause. Per-book records retain a previous valid checkpoint and a separate chapter checkpoint. Different books can run concurrently; the shared publication lock prevents opening the same book in both frontends. An unavailable remembered path falls back to the demonstration while reporting the failure.
+
+Book preparation runs on one background worker. Another open request replaces the pending request; obsolete results are discarded. The existing book remains available after an open failure. The loading indicator blocks reading commands while a replacement is prepared. Vocabulary starts on first use.
 
 ## Live theme proof
 
@@ -66,6 +68,7 @@ RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked -j 2
 ./tests/theme.sh
 ./tests/whitespace.sh
 ./tests/smoke.sh
+./tests/loading.sh
 READER_TEST_PLATFORM=wayland ./tests/smoke.sh
 cargo build --release --locked -j 2
 READER_BINARY=../../target/release/verse-qt ./tests/smoke.sh
@@ -81,3 +84,11 @@ See `REPORT.md` for actual results and remaining limitations. This is a renderer
 The reading view defaults to Omawrite's IBM Plex Mono at 20 scaled pixels, a roughly 65-character column, and a quiet footer. The ellipsis reveals file, font and speed controls.
 
 The model links `reader-core` for playback transitions, punctuation pacing, recovery, and atomic state writes. Legacy unchanged-edition anchors migrate through unique source matches. Qt still owns its timers, rendering, and recovery confirmation controls. The bottom-left three dots toggle the existing controls and a contents sidebar. Chapter selection stops playback and highlights the chapter start. The sidebar also offers optional footnote playback, chapter feedback, and per-book feedback history. Feedback records pace and understanding, with an optional explicit 25 WPM adjustment. Changed revisions offer the saved chapter start for confirmation without passage matching; missing chapters preserve the old saved location.
+
+To measure startup with isolated cold and reused application caches:
+
+```sh
+python3 apps/qt/tests/startup.py /path/to/book.epub --binary target/release/verse-qt --trials 5 --output docs/private/startup.json
+```
+
+Run that command from the repository root. Add `--state /path/to/state` to measure a saved position, or `--platform wayland` to use the desktop. The script copies the state and does not alter it. It reports first-frame latency separately from `READER_BOOK_READY_MS`, which waits for the loaded book, initial pagination and a rendered frame. OS caches are not flushed. `--baseline /path/to/previous/verse-qt` interleaves an older synchronous build; its endpoint is the first frame after loading, before its delayed pagination timer. `--max-warm-ms N` makes the command fail if any warm trial exceeds that limit.

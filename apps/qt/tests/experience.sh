@@ -15,7 +15,8 @@ root=Path(sys.argv[1]); source=root/'dictionary.jsonl'
 source.write_text(json.dumps(dict(word='crossed',lang_code='en',pos='verb',senses=[{'glosses':['Went across.']},{'glosses':['Intersected.']}]))+'\n')
 build(source,root/'dictionary.sqlite')
 PY
-cargo build --locked -j 2
-QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software READER_STATE_DIR="$state" READER_SMOKE=experience READER_SCREENSHOT="$PWD/evidence/vocabulary.png" ../../target/debug/verse-qt --book-json "$PWD/fixtures/demo.json" 2>&1 | tee "$state/result.log"
+reader_binary=${READER_BINARY:-../../target/debug/verse-qt}
+if [[ -z "${READER_BINARY:-}" ]]; then cargo build --locked -j 2; fi
+QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software READER_STATE_DIR="$state" READER_SMOKE=experience READER_SCREENSHOT="$PWD/evidence/vocabulary.png" "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee "$state/result.log"
 ! rg 'SMOKE FAIL|ReferenceError|TypeError|Unable to assign|QQmlApplicationEngine failed' "$state/result.log"
 rg 'EXPERIENCE COMPLETE' "$state/result.log"

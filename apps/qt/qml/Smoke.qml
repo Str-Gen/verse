@@ -27,6 +27,7 @@ QtObject {
     function run() {
         let reader = readerObject
         let editor = textEditor
+        if (reader.loading) { later.start(); return }
         if (smokeMode === "epub") {
             check(reader.title.length > 0 && reader.html.length > 0, "EPUB opens in native reader")
             check(JSON.parse(reader.chapters).length > 0, "EPUB contents available")
@@ -37,6 +38,38 @@ QtObject {
             check(reader.status.indexOf("Cannot open EPUB") >= 0, "EPUB error reported")
             console.log("EPUB COMPLETE")
             support.finish(0)
+            return
+        }
+        if (smokeMode === "loading" || smokeMode === "loading-fallback") {
+            if (phase === 0) {
+                if (smokeMode === "loading-fallback")
+                    check(reader.status.indexOf("Cannot reopen") >= 0, "asynchronous startup failure opens the demo with a warning: " + reader.status)
+                initialHtml = reader.html
+                anchor = reader.position
+                reader.open_book("fixtures/demo.json")
+                check(reader.loading, "book preparation starts asynchronously")
+                check(!host.controlsButton.enabled, "reading controls are disabled during preparation")
+                reader.open_book("fixtures/demo.json")
+                reader.open_book("/nonexistent/latest-request.json")
+                phase = 1
+                later.start()
+            } else if (phase === 1) {
+                check(reader.status.indexOf("unavailable") >= 0, "latest pending request replaces earlier requests")
+                check(reader.html === initialHtml && reader.position === anchor, "discarded and failed loads retain the current book")
+                reader.open_book("fixtures/demo.json")
+                phase = 2
+                later.start()
+            } else if (phase === 2) {
+                check(reader.html === initialHtml && !reader.playing, "reader remains usable after a queued failure and reopen")
+                reader.open_book("fixtures/theme-light.toml")
+                check(reader.loading, "existing malformed input is checked on the worker")
+                phase = 3
+                later.start()
+            } else {
+                check(reader.html === initialHtml && reader.status.indexOf("invalid EPUB") >= 0, "asynchronous parse failure reports an error and retains the book")
+                console.log("LOADING COMPLETE")
+                support.finish(0)
+            }
             return
         }
         if (smokeMode === "chapter-pagination") {

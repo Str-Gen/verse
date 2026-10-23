@@ -63,6 +63,23 @@ pub struct Model {
 }
 
 impl Model {
+    pub(crate) fn epub_identity(
+        path: &Path,
+        import_directory: &Path,
+    ) -> Result<Option<String>, String> {
+        if !path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("epub"))
+        {
+            return Ok(None);
+        }
+        let identities = location::LocalStore::open(import_directory.join("identities"))
+            .map_err(|error| format!("Cannot open the book library: {error}"))?;
+        identities
+            .identity_for(path)
+            .map(Some)
+            .map_err(|error| format!("Cannot open EPUB: {error}"))
+    }
     pub fn book(&self) -> &Book {
         &self.book
     }
@@ -73,19 +90,11 @@ impl Model {
     }
     pub fn open(path: impl AsRef<Path>, import_directory: &Path) -> Result<Self, String> {
         let path = path.as_ref();
-        if !path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("epub"))
-        {
+        let Some(book_id) = Self::epub_identity(path, import_directory)? else {
             return Self::load(path);
-        }
-        let identities = location::LocalStore::open(import_directory.join("identities"))
-            .map_err(|error| format!("Cannot open the book library: {error}"))?;
-        let book_id = identities
-            .identity_for(path)
-            .map_err(|error| format!("Cannot open EPUB: {error}"))?;
+        };
         let output = import_directory.join(format!("{book_id}.json"));
-        reader_core::export_epub(
+        reader_core::export_epub_cached(
             path,
             &book_id,
             &reader_core::ImportOptions::default(),
@@ -97,7 +106,7 @@ impl Model {
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref();
-        let store = DiskBook::open(path).map_err(|e| e.to_string())?;
+        let store = DiskBook::open_cached(path).map_err(|e| e.to_string())?;
         let mut window = store.load_chapter(0).map_err(|e| e.to_string())?;
         window.book.resources = store.image_resources(0).map_err(|e| e.to_string())?;
         let mut model = Self::from_book_with_dimensions(

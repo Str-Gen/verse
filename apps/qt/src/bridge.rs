@@ -1,4 +1,7 @@
-use crate::model::Model;
+use crate::{
+    loading::{self, LoadedBook},
+    model::Model,
+};
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 use reader_core::{
@@ -33,6 +36,7 @@ pub mod ffi {
         #[qproperty(i32, delay_ms)]
         #[qproperty(bool, playing)]
         #[qproperty(bool, preparing)]
+        #[qproperty(bool, loading)]
         #[qproperty(QString, chapters)]
         #[qproperty(i32, chapter_index)]
         #[qproperty(bool, follow_notes)]
@@ -71,6 +75,8 @@ pub mod ffi {
         #[qinvokable]
         fn open_book(self: Pin<&mut Reader>, path: &QString);
         #[qinvokable]
+        fn poll_open(self: Pin<&mut Reader>);
+        #[qinvokable]
         fn select(self: Pin<&mut Reader>, position: i32);
         #[qinvokable]
         fn play(self: Pin<&mut Reader>);
@@ -106,6 +112,11 @@ pub struct ReaderRust {
     delay_ms: i32,
     playing: bool,
     preparing: bool,
+    loading: bool,
+    load_result: Option<std::sync::mpsc::Receiver<Result<LoadedBook, String>>>,
+    pending_open: Option<String>,
+    fallback_to_demo: bool,
+    initial_warning: Option<String>,
     clock: Option<Instant>,
     comfort: Comfort,
     exposures: Vec<Exposure>,
@@ -256,42 +267,99 @@ impl ffi::Reader {
             .or(remembered)
             .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/demo.json").into());
         self.as_mut().open_book(&QString::from(path));
-        if explicit.is_none() && self.rust().model.is_none() {
-            let failure = self.rust().status.to_string();
-            self.as_mut().open_book(&QString::from(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/fixtures/demo.json"
-            )));
-            warning = Some(format!(
-                "Cannot reopen the previous book: {failure}. Opened the demonstration."
-            ));
-        }
-        if let Some(warning) = warning {
-            self.set_status(QString::from(warning));
+        self.as_mut().rust_mut().initial_warning = warning;
+        if explicit.is_none() {
+            if self.rust().loading {
+                self.as_mut().rust_mut().fallback_to_demo = true;
+            } else if self.rust().model.is_none() {
+                let failure = self.rust().status.to_string();
+                self.as_mut().open_demo(failure);
+            }
         }
     }
 
+    fn open_demo(mut self: Pin<&mut Self>, failure: String) {
+        self.as_mut().open_book(&QString::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/demo.json"
+        )));
+        self.as_mut().rust_mut().initial_warning = Some(format!(
+            "Cannot reopen the previous book: {failure}. Opened the demonstration."
+        ));
+    }
+
     pub fn open_book(mut self: Pin<&mut Self>, path: &QString) {
-        let import_directory =
-            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/.local"));
-        match Model::open(path.to_string(), import_directory) {
-            Ok(mut model) => {
-                let new_lock = if self
-                    .rust()
-                    .book_lock
-                    .as_ref()
-                    .is_some_and(|lock| lock.book_id() == model.book_id())
-                {
-                    None
-                } else {
-                    match reader_core::persistence::BookLock::acquire(model.book_id()) {
-                        Ok(lock) => Some(lock),
-                        Err(error) => {
-                            self.set_status(QString::from(error));
-                            return;
-                        }
-                    }
-                };
+        self.as_mut().rust_mut().fallback_to_demo = false;
+        self.as_mut().rust_mut().initial_warning = None;
+        if self.rust().load_result.is_some() {
+            // One running request and one replaceable pending request bound the work and memory.
+            self.as_mut().rust_mut().pending_open = Some(path.to_string());
+            return;
+        }
+        if !std::path::Path::new(&path.to_string()).is_file() {
+            self.as_mut().set_loading(false);
+            self.set_status(QString::from(
+                "Cannot open EPUB or book JSON: file is unavailable",
+            ));
+            return;
+        }
+        self.as_mut().pause_playback();
+        let previous_error = self
+            .rust()
+            .model
+            .as_ref()
+            .and_then(|model| model.save(&self.rust().state_path).err());
+        self.as_mut().rust_mut().initial_warning = previous_error
+            .map(|error| format!("{error}. New book opened; previous state retained."));
+        let held = self
+            .rust()
+            .book_lock
+            .as_ref()
+            .map(|lock| lock.book_id().to_owned());
+        match loading::start(
+            PathBuf::from(path.to_string()),
+            self.rust().state_path.clone(),
+            held,
+        ) {
+            Ok(receiver) => {
+                self.as_mut().rust_mut().load_result = Some(receiver);
+                self.as_mut().set_loading(true);
+                self.set_status(QString::from("Opening book…"));
+            }
+            Err(error) => {
+                self.as_mut().set_loading(false);
+                self.set_status(QString::from(error));
+            }
+        }
+    }
+
+    pub fn poll_open(mut self: Pin<&mut Self>) {
+        use std::sync::mpsc::TryRecvError;
+        let result = match self
+            .rust()
+            .load_result
+            .as_ref()
+            .map(|receiver| receiver.try_recv())
+        {
+            None | Some(Err(TryRecvError::Empty)) => return,
+            Some(Err(TryRecvError::Disconnected)) => {
+                Err("Book loader stopped before completing".into())
+            }
+            Some(Ok(result)) => result,
+        };
+        self.as_mut().rust_mut().load_result = None;
+        let pending = self.as_mut().rust_mut().pending_open.take();
+        if let Some(path) = pending {
+            drop(result);
+            self.open_book(&QString::from(path));
+            return;
+        }
+        match result {
+            Ok(LoadedBook {
+                mut model,
+                lock,
+                path,
+            }) => {
                 self.as_mut().finish_exposure();
                 let mut rust = self.as_mut().rust_mut();
                 rust.clock = Some(Instant::now());
@@ -300,23 +368,12 @@ impl ffi::Reader {
                 rust.window_start = 0;
                 rust.window_generation = 0;
                 rust.vocabulary = None;
+                if let Some(lock) = lock {
+                    rust.book_lock = Some(lock);
+                }
                 self.as_mut().set_preparing(false);
-                let previous_error = self
-                    .rust()
-                    .model
-                    .as_ref()
-                    .and_then(|current| current.save(&self.rust().state_path).err());
-                if let Some(lock) = new_lock {
-                    self.as_mut().rust_mut().book_lock = Some(lock);
-                }
-                if let Err(error) = model.restore(&self.rust().state_path) {
-                    model.status = error;
-                }
-                if let Some(error) = previous_error {
-                    model.status = format!("{error}. New book opened; previous state retained.");
-                }
                 if let Some(directory) = self.rust().state_path.parent() {
-                    let remembered = std::fs::canonicalize(path.to_string())
+                    let remembered = std::fs::canonicalize(path)
                         .map_err(|error| error.to_string())
                         .and_then(|book_path| {
                             reader_core::location::write_json(
@@ -330,17 +387,8 @@ impl ffi::Reader {
                             format!("Book opened, but cannot remember its path: {error}");
                     }
                 }
-                let vocabulary = self
-                    .rust()
-                    .state_path
-                    .parent()
-                    .ok_or_else(|| "No state directory".to_owned())
-                    .and_then(|root| Vocabulary::open(root, model.book()));
-                match vocabulary {
-                    Ok(worker) => self.as_mut().rust_mut().vocabulary = Some(worker),
-                    Err(error) => {
-                        model.status = format!("Book opened; vocabulary unavailable: {error}")
-                    }
+                if let Some(warning) = self.as_mut().rust_mut().initial_warning.take() {
+                    model.status = warning;
                 }
                 self.as_mut()
                     .set_chapters(QString::from(model.chapters_json()));
@@ -352,10 +400,18 @@ impl ffi::Reader {
                 self.as_mut()
                     .set_plain_text(QString::from(&model.plain_text));
                 self.as_mut().rust_mut().model = Some(model);
-                self.sync();
+                self.as_mut().sync();
             }
-            Err(error) => self.set_status(QString::from(error)),
+            Err(error) => {
+                if self.rust().fallback_to_demo && self.rust().model.is_none() {
+                    self.open_demo(error);
+                    return;
+                }
+                self.as_mut().set_status(QString::from(error));
+            }
         }
+        self.as_mut().rust_mut().fallback_to_demo = false;
+        self.set_loading(false);
     }
 
     fn sync(mut self: Pin<&mut Self>) {
@@ -552,6 +608,10 @@ impl ffi::Reader {
         self.sync();
     }
     pub fn pause(mut self: Pin<&mut Self>) {
+        self.as_mut().pause_playback();
+        self.persist();
+    }
+    fn pause_playback(mut self: Pin<&mut Self>) {
         self.as_mut().finish_exposure();
         let now = self.now();
         self.as_mut().rust_mut().comfort.pause(now);
@@ -559,8 +619,7 @@ impl ffi::Reader {
         if let Some(model) = &mut self.as_mut().rust_mut().model {
             model.pause();
         }
-        self.as_mut().sync();
-        self.persist();
+        self.sync();
     }
     pub fn tick(mut self: Pin<&mut Self>) {
         if self.rust().preparing {
