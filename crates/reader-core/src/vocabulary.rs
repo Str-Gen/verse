@@ -1,14 +1,14 @@
 //! Both shells use the same local vocabulary process and its durable SQLite store.
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
 pub struct Vocabulary {
     child: Child,
-    input: ChildStdin,
+    input: BufWriter<ChildStdin>,
     output: BufReader<ChildStdout>,
 }
 impl Vocabulary {
@@ -24,7 +24,7 @@ impl Vocabulary {
         let output = BufReader::new(child.stdout.take().ok_or("Vocabulary output unavailable")?);
         let mut result = Self {
             child,
-            input,
+            input: BufWriter::new(input),
             output,
         };
         result.request(&json!({"action":"open", "book": {"book_id":book.book_id, "title":book.title, "documents":book.documents, "pieces":book.pieces}}))?;
