@@ -215,6 +215,14 @@ function reflow() {
   $('book').style.setProperty('--image-height', `${Math.max(1, $('viewport').clientHeight - Number($('font-size').value) * 3)}px`);
   const width = $('viewport').clientWidth;
   if (width <= 0) return;
+  for (const img of document.querySelectorAll('#book img[data-resource]')) {
+    const dimensions = windowInfo?.image_dimensions?.[img.dataset.resource];
+    if (!dimensions) continue;
+    const [naturalWidth, naturalHeight] = dimensions;
+    const scale = Math.min(1, width / naturalWidth, Math.max(1, $('viewport').clientHeight - Number($('font-size').value) * 3) / naturalHeight);
+    img.style.width = `${naturalWidth * scale}px`;
+    img.style.height = `${naturalHeight * scale}px`;
+  }
   $('book').style.width = `${width}px`;
   $('book').style.columnWidth = `${width}px`;
   $('book').style.transform = 'none'; page = 0; pageWidth = width + 64;
@@ -264,6 +272,17 @@ async function turn(direction) {
   const first = [...pageForPiece].find(([, p]) => p === page);
   if (first) choose(first[0]);
   if (native) void refreshImages();
+}
+
+function moveWord(direction) {
+  if (mode !== 'reading' || navigating) return;
+  for (let next = at + direction; next >= 0 && next < book.pieces.length; next += direction) {
+    if (kindAt(next) !== 'word') continue;
+    if (pageForPiece.get(next) !== page) return;
+    window.getSelection()?.removeAllRanges();
+    choose(next);
+    return;
+  }
 }
 
 function stop() { playbackEpoch++; finishExposure(); if (mode === 'playing') comfort.pause(performance.now()); preparing = false; clearTimeout(timer); timer = undefined; $('playback').classList.remove('running', 'preparing'); }
@@ -509,6 +528,8 @@ document.addEventListener('keydown', event => {
   else if (event.code === 'Escape') returnToText();
   else if (event.code === 'ArrowRight') { event.preventDefault(); turn(1); }
   else if (event.code === 'ArrowLeft') { event.preventDefault(); turn(-1); }
+  else if (event.code === 'ArrowUp') { event.preventDefault(); moveWord(-1); }
+  else if (event.code === 'ArrowDown') { event.preventDefault(); moveWord(1); }
 });
 new MutationObserver(syncControls).observe($('playback'), {attributes:true, attributeFilter:['hidden', 'class']});
 new ResizeObserver(() => { if (mode === 'reading') reflow(); }).observe($('viewport'));
@@ -520,7 +541,7 @@ export const reader = {
   async seekGlobal(index) {
     if (!windowInfo) { choose(index); return; }
     if (index < windowInfo.start || index >= windowInfo.start + book.pieces.length) {
-      if (!await moveWindow(index)) throw new Error('Could not seek to passage');
+      if (!await moveWindow(index)) throw new Error(`Could not seek to passage ${index}: ${navigating ? 'navigation already in progress' : $('notice').textContent}`);
     }
     choose(index - windowInfo.start);
   },

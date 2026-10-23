@@ -201,7 +201,7 @@ fn prepare_session(
     let resume = disk
         .restore(durable.as_ref().or(saved.as_ref()))
         .map_err(|e| e.to_string())?;
-    let window = disk.load_window(resume.at).map_err(|e| e.to_string())?;
+    let window = disk.load_chapter(resume.at).map_err(|e| e.to_string())?;
     let local_at = resume.at.saturating_sub(window.start);
     let mut result = prepare_window(&store, &disk, window)?;
     result["resume"] = serde_json::json!({"kind": resume.kind, "at": local_at});
@@ -244,7 +244,7 @@ fn prepare_window(
     let result = serde_json::json!({
         "comfort": {"preparation":reader_core::experience::PREPARATION_MS,"ramp":reader_core::experience::RAMP_MS,"brief_pause":reader_core::experience::BRIEF_PAUSE_MS},
         "vocabulary_error": vocabulary_error, "book": &parsed, "normal": normal, "notes": notes, "note_plans": note_plans,
-        "window": {"start":window.start,"total":window.total,"chapters":chapters}
+        "window": {"start":window.start,"total":window.total,"chapters":chapters,"image_dimensions":window.image_dimensions}
     });
     validate_book(&result["book"])?;
     *store.book.lock().map_err(|_| "Book state unavailable")? = parsed;
@@ -262,7 +262,7 @@ fn load_window(
     if disk.metadata().book_id != book_id {
         return Err("Book changed before navigation".into());
     }
-    let window = disk.load_window(at).map_err(|e| e.to_string())?;
+    let window = disk.load_chapter(at).map_err(|e| e.to_string())?;
     prepare_window(&store, &disk, window)
 }
 
@@ -331,7 +331,7 @@ fn unique_import_path(root: &Path) -> Result<PathBuf, String> {
 
 fn open_disk(store: &Store, path: &Path) -> Result<Value, String> {
     let next = reader_core::book_store::DiskBook::open(path).map_err(|e| e.to_string())?;
-    let window = next.load_window(0).map_err(|e| e.to_string())?;
+    let window = next.load_chapter(0).map_err(|e| e.to_string())?;
     let mut lock = store
         .book_lock
         .lock()
@@ -536,7 +536,7 @@ fn initialize() -> Result<Store, String> {
         Err(error) => return Err(error.to_string()),
     };
     let book_lock = reader_core::persistence::BookLock::acquire(&disk.metadata().book_id)?;
-    let window = disk.load_window(0).map_err(|e| e.to_string())?;
+    let window = disk.load_chapter(0).map_err(|e| e.to_string())?;
     reader_core::location::write_json(
         &root.join("last-book.json"),
         &fs::canonicalize(&path).map_err(|e| e.to_string())?,

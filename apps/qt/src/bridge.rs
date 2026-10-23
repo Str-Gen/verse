@@ -46,6 +46,8 @@ pub mod ffi {
         #[qinvokable]
         fn chapter_position(self: &Reader, index: i32) -> i32;
         #[qinvokable]
+        fn adjacent_word_position(self: &Reader, direction: i32) -> i32;
+        #[qinvokable]
         fn turn_window(self: Pin<&mut Reader>, direction: i32);
         #[qinvokable]
         fn jump_chapter(self: Pin<&mut Reader>, index: i32);
@@ -439,6 +441,15 @@ impl ffi::Reader {
                 .set_delay_ms(i32::try_from(values.6).unwrap_or(1000));
             self.set_playing(values.5);
         }
+    }
+
+    pub fn adjacent_word_position(&self, direction: i32) -> i32 {
+        self.rust()
+            .model
+            .as_ref()
+            .and_then(|model| model.adjacent_word_position(direction))
+            .and_then(|position| i32::try_from(position).ok())
+            .unwrap_or(-1)
     }
 
     pub fn chapter_position(&self, index: i32) -> i32 {

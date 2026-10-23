@@ -30,8 +30,11 @@ int main(int argc, char **argv) {
           QString::fromUtf8("<p style=\"white-space: pre-wrap;\">a\xc2\xa0"
                             "b\xe2\x80\xa8" "c\xe2\x80\xa9" "d</p>"),
           "a b\nc\nd");
+    check("leading source newline in a heading",
+          "<p>Before</p><h2 style=\"white-space: pre-wrap;\"><br/>Heading</h2><p>After</p>",
+          "Before\n\nHeading\nAfter");
     if (failures == 0) {
-        std::cout << "PASS: six native QTextDocument whitespace checks\n";
+        std::cout << "PASS: seven native QTextDocument whitespace checks\n";
     }
     return failures == 0 ? 0 : 1;
 }

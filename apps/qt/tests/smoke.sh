@@ -83,3 +83,21 @@ if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEn
 READER_STATE_DIR="$state/windows" READER_SMOKE=windows "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee evidence/runtime/windows.log
 rg -q "WINDOWS COMPLETE" evidence/runtime/windows.log
 if rg -n 'ReferenceError|TypeError|Unable to assign|SMOKE FAIL|QQmlApplicationEngine failed' evidence/runtime/windows.log; then exit 1; fi
+
+READER_STATE_DIR="$state/pagination" READER_SMOKE=pagination "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee evidence/runtime/pagination.log
+rg -q "PAGINATION COMPLETE" evidence/runtime/pagination.log
+
+python - "$state/long-chapter.json" <<'PYCHAPTER'
+import json, pathlib, sys
+book = json.loads(pathlib.Path('fixtures/demo.json').read_text())
+book['book_id'] = 'long-chapter-pagination'
+book['documents'][0]['blocks'][0]['runs'].insert(0, {'text': '\n', 'sources': []})
+book['chapters'] = book['chapters'][:1]
+for document in book['documents']:
+    for block in document['blocks']:
+        if block.get('resource'):
+            block['resource'] = str(pathlib.Path('fixtures', block['resource']).resolve())
+pathlib.Path(sys.argv[1]).write_text(json.dumps(book))
+PYCHAPTER
+READER_STATE_DIR="$state/chapter-pagination" READER_SMOKE=chapter-pagination "$reader_binary" --book-json "$state/long-chapter.json" 2>&1 | tee evidence/runtime/chapter-pagination.log
+rg -q "CHAPTER_PAGINATION COMPLETE" evidence/runtime/chapter-pagination.log

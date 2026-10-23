@@ -9,6 +9,7 @@ QtObject {
     property string anchorWord: ""
     property string initialHtml: ""
     property var coreImages: []
+    property int inspectedImages: 0
     property int playbackStart: 0
     property int displayedBeforeReturn: 0
     function check(condition, label) {
@@ -38,6 +39,116 @@ QtObject {
             support.finish(0)
             return
         }
+        if (smokeMode === "chapter-pagination") {
+            if (phase === 0) {
+                check(support.inspectDocument(editor).plainText === reader.plain_text, "leading heading newline retains exact source positions")
+                check(reader.plain_text.trim().endsWith("she stopped."), "the entire long chapter participates in pagination")
+                anchor = host.pages.length
+                playbackStart = pageViewport.height
+                host.selectStart(reader.plain_text.indexOf("crossed"))
+                phase = 1
+                later.start()
+            } else if (phase === 1) {
+                check(pageViewport.height === playbackStart && host.pages.length === anchor, "word selection does not resize or repaginate the chapter")
+                for (let i = 1; i < anchor; ++i) {
+                    host.turn(1)
+                    host.paginate()
+                    check(host.page === i && host.pages.length === anchor, "chapter page counter advances without resetting")
+                }
+                anchorWord = reader.word
+                host.height = 480
+                phase = 2
+                later.start()
+            } else {
+                check(host.pages.length > anchor && reader.word === anchorWord, "smaller viewport recalculates the whole chapter and preserves the selected word")
+                console.log("CHAPTER_PAGINATION COMPLETE")
+                support.finish(0)
+            }
+            return
+        }
+        if (smokeMode === "video-review") {
+            if (phase === 0) {
+                host.width = 930
+                host.height = 1040
+                host.jumpChapter(1)
+                phase = 1
+                later.start()
+            } else if (phase === 1) {
+                const actual = support.inspectDocument(editor).plainText
+                check(actual === reader.plain_text, "recorded chapter source map matches native text")
+                check(host.pages.length > 3, "recorded book chapter has a complete page count")
+                anchor = host.pages.length
+                anchorWord = reader.word
+                for (let i = 1; i < anchor; ++i) {
+                    host.turn(1)
+                    host.paginate()
+                    check(host.page === i && host.pages.length === anchor, "recorded chapter turns once per page with a fixed total")
+                }
+                for (let i = anchor - 2; i >= 0; --i) {
+                    host.turn(-1)
+                    host.paginate()
+                    check(host.page === i, "recorded chapter returns to the same page")
+                }
+                check(reader.word === anchorWord, "recorded chapter returns to its opening word")
+                host.height = 520
+                phase = 2
+                later.start()
+            } else {
+                check(host.pages.length > anchor, "recorded chapter page total responds to viewport height")
+                if (screenshotPath !== "") check(support.capture(screenshotPath), "recorded book render captured")
+                console.log("VIDEO_REVIEW COMPLETE", anchor, host.pages.length)
+                support.finish(0)
+            }
+            return
+        }
+        if (smokeMode === "pagination") {
+            if (phase === 1) {
+                check(host.page === 0, "crossing a section opens its first page")
+                host.turn(-1)
+                phase = 2
+                later.start()
+                return
+            }
+            if (phase === 2) {
+                check(reader.html === initialHtml && host.page === host.pages.length - 1, "backward section turn restores the original last page")
+                console.log("PAGINATION COMPLETE")
+                support.finish(0)
+                return
+            }
+            const count = host.pages.length
+            check(count > 1, "pagination fixture spans multiple pages")
+            for (let i = 1; i < count; ++i) {
+                host.turn(1)
+                check(host.page === i, "one Right action advances exactly one page")
+                host.paginate()
+                check(host.page === i, "reflow preserves the turned page")
+            }
+            for (let i = count - 2; i >= 0; --i) {
+                host.turn(-1)
+                host.paginate()
+                check(host.page === i, "one Left action restores exactly the previous page")
+            }
+            editor.forceActiveFocus()
+            const first = reader.position
+            support.pressKey(Qt.Key_Down)
+            check(reader.position > first && editor.selectedText === reader.word, "Down selects and highlights the next word")
+            support.pressKey(Qt.Key_Up)
+            check(reader.position === first && editor.selectedText === reader.word, "Up restores the previous highlighted word")
+            support.pressKey(Qt.Key_Up)
+            check(reader.position === first && host.page === 0, "Up stops at the page start")
+            for (let i = 0; i < reader.plain_text.length; ++i) host.moveWord(1)
+            const last = reader.position
+            host.moveWord(1)
+            check(reader.position === last && host.page === 0, "Down stops at the page end")
+            support.pressKey(Qt.Key_Right)
+            check(host.page === 1, "Right still turns a full page after word navigation")
+            initialHtml = reader.html
+            host.page = host.pages.length - 1
+            host.turn(1)
+            phase = 1
+            later.start()
+            return
+        }
         if (smokeMode === "memory") {
             const chapters = JSON.parse(reader.chapters)
             if (phase === 0) {
@@ -45,7 +156,7 @@ QtObject {
                 check(support.memoryReport(false, 0), "native memory reading phase recorded")
                 later.interval = 100
             } else {
-                check(reader.html.length < 262144, "native text window remains bounded after distant seek")
+                check(chapters.filter((title, index) => reader.chapter_position(index) >= 0).length === 1, "native text layout retains only the current chapter after distant seek")
                 check(support.inspectDocument(editor).plainText === reader.plain_text, "distant seek retains exact native source mapping")
                 check(editor.selectedText === reader.word, "distant seek retains visible source anchor")
             }
@@ -80,7 +191,7 @@ QtObject {
                 check(reader.chapter_index === 0, "backward page boundary loads the preceding chapter window")
                 check(editor.selectedText === reader.word, "backward window retains the selected source word")
                 check(support.inspectDocument(editor).plainText === reader.plain_text, "backward window has exact native source coordinates")
-                reader.jump_chapter(0)
+                host.jumpChapter(0)
                 phase = 3
                 later.start()
             } else {
@@ -173,6 +284,7 @@ QtObject {
                 support.pressSpace()
                 check(!host.controlsVisible && !reader.playing && !host.playback, "Space closes sidebar without starting playback")
                 check(reader.progress > 0 && reader.progress < 100, "chapter position reports whole-book progress")
+                host.jumpChapter(0)
                 let end = reader.plain_text.indexOf("inland.")
                 editor.select(end, end + 7)
                 host.begin()
@@ -264,15 +376,33 @@ QtObject {
             return
         }
         if (smokeMode === "core") {
+            if (phase === 200) {
+                const text = support.inspectDocument(editor).plainText
+                coreImages = []
+                for (let at = 0; at < text.length; ++at) if (text[at] === "\ufffc") coreImages.push(at)
+                check(coreImages.length > 0, "next synthetic chapter contains images")
+                reader.select(coreImages[0])
+                phase = 100
+                later.start()
+                return
+            }
             if (phase >= 100) {
                 const current = support.inspectDocument(editor)
                 check(current.loadedImages <= 5, "native decoded image working set stays bounded")
                 check(current.imageSizes.some(size => size.position === reader.position), "visited image decodes at its exact source position")
                 check(current.plainText === reader.plain_text, "image prefetch preserves native source coordinates")
+                inspectedImages += 1
                 const next = phase - 99
                 if (next === coreImages.length) {
-                    console.log("CORE COMPLETE")
-                    support.finish(0)
+                    if (reader.chapter_index + 1 < JSON.parse(reader.chapters).length) {
+                        host.jumpChapter(reader.chapter_index + 1)
+                        phase = 200
+                        later.start()
+                    } else {
+                        check(inspectedImages === 5, "all synthetic images remain accessible across chapters")
+                        console.log("CORE COMPLETE")
+                        support.finish(0)
+                    }
                 } else {
                     reader.select(coreImages[next])
                     phase += 1
@@ -283,7 +413,7 @@ QtObject {
             let report = support.inspectDocument(editor)
             check(report.plainText === reader.plain_text, "integrated core text matches native UTF-16 layout")
             check(report.italic > 0 && report.bold > 0 && report.headings > 0, "integrated core structure renders natively")
-            check(report.images === 5 && report.loadedImages > 0 && report.loadedImages <= 5, "core images prefetch within the native cache bound")
+            check(report.images > 0 && report.loadedImages > 0 && report.loadedImages <= 5, "core images prefetch within the native cache bound")
             for (let size of report.imageSizes) {
                 check(Math.abs(size.width * size.naturalHeight - size.height * size.naturalWidth) < 0.1,
                       "image preserves intrinsic aspect ratio")
@@ -322,7 +452,7 @@ QtObject {
             for (let at = 0; at < report.plainText.length; at++) {
                 if (report.plainText[at] === "\ufffc") coreImages.push(at)
             }
-            check(coreImages.length === 5, "all raster source positions are available for native traversal")
+            check(coreImages.length === report.images, "current chapter raster source positions are available for native traversal")
             reader.select(coreImages[0])
             phase = 100
             later.start()

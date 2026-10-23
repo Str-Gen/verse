@@ -60,10 +60,6 @@ ApplicationWindow {
         if (!ready || viewport.height < 100 || editor.contentHeight <= 0) return
         support.fitImages(editor, Math.max(1, editor.width - 8), Math.max(1, viewport.height - editor.font.pixelSize * 3))
         let result = [{y: 0, position: 0}]
-        let chapterStarts = (reader.chapters.length ? JSON.parse(reader.chapters) : [])
-            .map((title, index) => reader.chapter_position(index))
-            .filter(position => position >= 0)
-            .map(position => ({y: editor.positionToRectangle(position).y, position: position}))
         let y = 0
         while (true) {
             let position = editor.length
@@ -71,12 +67,6 @@ ApplicationWindow {
             if (y + viewport.height < editor.contentHeight) {
                 position = editor.positionAt(0, y + viewport.height - editor.font.pixelSize * 1.6)
                 next = editor.positionToRectangle(position).y
-            }
-            for (let chapter of chapterStarts) {
-                if (chapter.y > y + 1 && chapter.y < next) {
-                    next = chapter.y
-                    position = chapter.position
-                }
             }
             if (next <= y + 1 || next >= editor.contentHeight) break
             result.push({y: next, position: position})
@@ -99,12 +89,21 @@ ApplicationWindow {
         let next = Math.max(0, Math.min(pages.length - 1, page + delta))
         if (next === page) {
             reader.turn_window(delta)
-            Qt.callLater(paginate)
+            paginate()
             return
         }
         page = next
         reader.select(pages[next].position)
         editor.select(reader.position, reader.end_position)
+    }
+    function moveWord(delta) {
+        if (playback) return
+        const position = reader.adjacent_word_position(delta)
+        if (position < 0) return
+        const y = editor.positionToRectangle(position).y
+        const end = page + 1 < pages.length ? pages[page + 1].y : editor.contentHeight
+        if (y < pageY || y >= end) return
+        selectStart(position)
     }
     function selectStart(position) {
         if (!ready || playback) return
@@ -144,7 +143,7 @@ ApplicationWindow {
     function jumpChapter(index) {
         reader.jump_chapter(index)
         playback = false
-        locate()
+        paginate()
         editor.forceActiveFocus()
     }
     function continueChapter(save) {
@@ -223,6 +222,8 @@ ApplicationWindow {
     }
     Shortcut { sequence: "C"; enabled: window.shortcutsActive && playback; onActivated: vocabularyPanel.capture() }
     Shortcut { sequence: "V"; enabled: window.shortcutsActive; onActivated: vocabularyPanel.showReview() }
+    Shortcut { sequence: "Up"; enabled: window.shortcutsActive && !playback && !controlsVisible; onActivated: moveWord(-1) }
+    Shortcut { sequence: "Down"; enabled: window.shortcutsActive && !playback && !controlsVisible; onActivated: moveWord(1) }
     Shortcut { sequence: "Right"; enabled: window.shortcutsActive && !playback && !speedBox.activeFocus; onActivated: turn(1) }
     Shortcut { sequence: "Left"; enabled: window.shortcutsActive && !playback && !speedBox.activeFocus; onActivated: turn(-1) }
     Shortcut { sequence: "Space"; autoRepeat: false; enabled: !openDialog.visible && !recoveryDialog.visible && !chooseLocationDialog.visible && !feedbackDialog.visible; onActivated: handleSpace() }
@@ -392,7 +393,7 @@ ApplicationWindow {
                                 Qt.callLater(() => window.selectStart(position))
                             }
                         }
-                        Accessible.name: "Book text. Click a word to highlight the starting point, then press Space to play."
+                        Accessible.name: "Book text. Use Up and Down to highlight a word, or click one, then press Space to play."
                     }
                 }
             }
@@ -460,16 +461,6 @@ ApplicationWindow {
             text: "Use selected location for this edition"
             onClicked: { reader.select(editor.selectionStart); chooseLocationDialog.open() }
         }
-        Label {
-            Layout.fillWidth: true
-            visible: reader.status !== "Stopped" && reader.status !== "Reading"
-            text: reader.status
-            textFormat: Text.PlainText
-            font.pixelSize: 12
-            opacity: 0.7
-            wrapMode: Text.Wrap
-            Accessible.name: "Reader status: " + text
-        }
         RowLayout {
             Layout.fillWidth: true
             opacity: 0.65
@@ -482,6 +473,21 @@ ApplicationWindow {
             SpinBox { id: speedBox; visible: controlsVisible; from: 60; to: 1200; stepSize: 25; value: reader.speed; onValueModified: reader.change_speed(value); Accessible.name: "Words per minute" }
             ToolButton { text: reader.playing ? "Pause" : playback ? "Continue" : "Play selection"; onClicked: reader.playing ? reader.pause() : begin() }
         }
+    }
+    Label {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 60
+        width: Math.min(parent.width - 40, 600)
+        z: 5
+        visible: !["Stopped", "Reading", "Selected passage", "Selected chapter"].includes(reader.status) && reader.status.length > 0
+        text: reader.status
+        textFormat: Text.PlainText
+        font.pixelSize: 12
+        padding: 8
+        wrapMode: Text.Wrap
+        background: Rectangle { color: theme.background }
+        Accessible.name: "Reader status: " + text
     }
     Label {
         objectName: "bookProgress"

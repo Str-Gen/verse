@@ -82,7 +82,7 @@ The frontend constructs text nodes and known semantic elements. It has no publis
 
 ## Prototype boundaries
 
-This is a runnable comparison artifact, not a release. It lays out the whole book into CSS columns, which can consume substantial DOM memory on long books. It has not been validated against a broad EPUB corpus. The normalizer decides visibility, semantic content, chapter identity and ornament classification before rendering.
+This is a runnable comparison artifact, not a release. It lays out the current chapter into CSS columns. A publication without chapter boundaries is treated as one chapter. It has not been validated against a broad EPUB corpus. The normalizer decides visibility, semantic content, chapter identity and ornament classification before rendering.
 
 Playback includes sentence/paragraph pauses and a fixed center guide. It does not yet reproduce the accepted two-second preparation pulse, 30-second speed ramp, compound timing policy or recent-vocabulary capture. Explicit source-piece selection is verified; arbitrary partial-word selections start at their containing piece. Note interruption returns to the main-text marker rather than reopening a note at an internal word on restart.
 
@@ -101,3 +101,5 @@ On Linux, the native adapter reads `~/.local/state/omarchy/current/theme/colors.
 Absent or invalid colors fall back independently to light/dark defaults. The file's `mode` wins, then background brightness, then WebKit's system color preference. Other platforms use the system preference unless an override file is supplied. This implements palette updates; Qt's portal-based text-scale adapter is not yet present in Tauri.
 
 `python tests/theme.py` drives a native WebKitGTK instance through temporary-file creation, atomic replacement, symlink switching, removal and recreation. It verifies the palette updates without restarting the reader. `verify.sh` includes this check.
+
+In reading mode, Left/Right turn pages. Up/Down highlight the previous/next word within the current page. The native reader lays out one complete chapter at a time, so the page total covers the chapter and recalculates when the viewport or font changes. Front matter before the first chapter has its own page count. Status notices do not change the reading viewport.

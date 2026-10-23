@@ -27,6 +27,7 @@ pub struct BookWindow {
     pub book: Book,
     pub start: usize,
     pub total: usize,
+    pub image_dimensions: BTreeMap<String, [u32; 2]>,
 }
 
 #[derive(Debug)]
@@ -178,7 +179,7 @@ impl DiskBook {
         result
     }
     fn build(path: &Path, root: PathBuf, lease: File) -> Result<Self> {
-        for name in ["blocks", "runs", "notes", "resources"] {
+        for name in ["blocks", "runs", "notes", "resources", "dimensions"] {
             fs::create_dir(root.join(name))?;
         }
         let mut sink = Sink {
@@ -503,8 +504,38 @@ impl DiskBook {
         if self.total > 0 && at >= self.total {
             return Err(invalid("piece index outside book"));
         }
-        let start = at.saturating_sub(WINDOW_PIECES / 4);
-        let end = start.saturating_add(WINDOW_PIECES).min(self.total);
+        let (chapter_start, chapter_end) = self.chapter_bounds(at);
+        let start = chapter_start + (at - chapter_start) / WINDOW_PIECES * WINDOW_PIECES;
+        self.load_range(start, start.saturating_add(WINDOW_PIECES).min(chapter_end))
+    }
+
+    pub fn load_chapter(&self, at: usize) -> Result<BookWindow> {
+        if self.total > 0 && at >= self.total {
+            return Err(invalid("piece index outside book"));
+        }
+        let (start, end) = self.chapter_bounds(at);
+        self.load_range(start, end)
+    }
+
+    fn chapter_bounds(&self, at: usize) -> (usize, usize) {
+        let chapter_start = self
+            .chapter_starts
+            .iter()
+            .copied()
+            .filter(|&start| start <= at)
+            .max()
+            .unwrap_or(0);
+        let chapter_end = self
+            .chapter_starts
+            .iter()
+            .copied()
+            .filter(|&start| start > at)
+            .min()
+            .unwrap_or(self.total);
+        (chapter_start, chapter_end)
+    }
+
+    fn load_range(&self, start: usize, end: usize) -> Result<BookWindow> {
         let mut book = self.metadata.clone();
         if start < end {
             let mut reader = self
@@ -513,20 +544,32 @@ impl DiskBook {
                 .map_err(|_| invalid("book reader poisoned"))?;
             reader.seek_index(start)?;
             let mut entries = [[0; 16]; WINDOW_PIECES];
-            let entries = &mut entries[..end - start];
-            reader.index.read_exact(entries.as_flattened_mut())?;
-            book.pieces.reserve(entries.len());
             let mut previous_end = None;
-            for entry in entries {
-                let (piece, end) = reader.read_piece(entry, previous_end)?;
-                book.pieces.push(piece);
-                previous_end = Some(end);
+            let mut remaining = end - start;
+            let mut bytes = 0u64;
+            while remaining > 0 {
+                let count = remaining.min(WINDOW_PIECES);
+                let entries = &mut entries[..count];
+                reader.index.read_exact(entries.as_flattened_mut())?;
+                for entry in entries {
+                    bytes = bytes.saturating_add(u64::from_le_bytes(
+                        entry[8..].try_into().map_err(invalid)?,
+                    ));
+                    if bytes > MAX_RECORD {
+                        return Err(Error::Limit("chapter piece bytes"));
+                    }
+                    let (piece, end) = reader.read_piece(entry, previous_end)?;
+                    book.pieces.push(piece);
+                    previous_end = Some(end);
+                }
+                remaining -= count;
             }
         }
         let ids: BTreeSet<_> = book.pieces.iter().map(|p| p.block_id.clone()).collect();
         let mut documents: BTreeMap<String, Vec<Block>> = BTreeMap::new();
         let mut context_bytes = 0u64;
         let mut boundary_blocks = None;
+        let mut image_dimensions = BTreeMap::new();
         for id in ids {
             let path = self.root.join("blocks").join(key(&id));
             if !path.exists() {
@@ -536,6 +579,12 @@ impl DiskBook {
                 return Err(Error::Limit("block styling metadata bytes"));
             }
             let mut block: Block = self.read(&path)?;
+            if let Some(resource) = &block.resource {
+                let path = self.root.join("dimensions").join(key(resource));
+                if path.exists() {
+                    image_dimensions.insert(resource.clone(), self.read(&path)?);
+                }
+            }
             let original = std::mem::take(&mut block.runs);
             let pieces: Vec<_> = book.pieces.iter().filter(|p| p.block_id == id).collect();
             let (previous, next) = match &boundary_blocks {
@@ -690,6 +739,7 @@ impl DiskBook {
             book,
             start,
             total: self.total,
+            image_dimensions,
         })
     }
     pub fn image_resources(&self, at: usize) -> Result<Vec<Resource>> {
@@ -1028,6 +1078,23 @@ impl<'de> Visitor<'de> for BookSeed<'_, '_> {
                 "resources" => a.next_value_seed(ArraySeed(
                     |r: Resource| {
                         let r = prepare_resource(r)?;
+                        use base64::Engine;
+                        let encoded = r
+                            .data_url
+                            .split_once(',')
+                            .ok_or_else(|| invalid("invalid image data URL"))?
+                            .1;
+                        let bytes = base64::engine::general_purpose::STANDARD
+                            .decode(encoded)
+                            .map_err(invalid)?;
+                        let (width, height) = image::ImageReader::new(std::io::Cursor::new(bytes))
+                            .with_guessed_format()?
+                            .into_dimensions()
+                            .map_err(invalid)?;
+                        write_json(
+                            &self.0.root.join("dimensions").join(key(&r.id)),
+                            &[width, height],
+                        )?;
                         write_json(&self.0.root.join("resources").join(key(&r.id)), &r)
                     },
                     std::marker::PhantomData,
@@ -1321,6 +1388,33 @@ mod tests {
         write_json(&path, &book)?;
         let disk = DiskBook::open(&path)?;
         fs::remove_file(path)?;
+        let chapter = disk.load_chapter(700)?;
+        assert_eq!(chapter.start, 0);
+        assert_eq!(
+            chapter.book.pieces.len(),
+            1400,
+            "chapter pagination must include every piece beyond the playback window"
+        );
+        assert_eq!(
+            chapter.book.documents[0].blocks[0]
+                .runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<String>(),
+            text
+        );
+        let first = disk.load_window(0)?;
+        let next = disk.load_window(first.start + first.book.pieces.len())?;
+        assert_eq!(
+            next.start,
+            first.start + first.book.pieces.len(),
+            "page windows must not repeat already displayed words"
+        );
+        let previous = disk.load_window(next.start - 1)?;
+        assert_eq!(
+            previous.start, first.start,
+            "backward navigation must restore the same page layout"
+        );
         let window = disk.load_window(700)?;
         let runs = &window.book.documents[0].blocks[0].runs;
         let actual: String = runs.iter().map(|r| r.text.as_str()).collect();
@@ -1473,10 +1567,10 @@ mod tests {
         assert!(disk.metadata().pieces.is_empty());
         assert_eq!(disk.total_pieces(), 1500);
         let window = disk.load_window(1100)?;
-        assert_eq!(window.start, 972);
-        assert_eq!(window.book.pieces.len(), 512);
-        assert_eq!(window.book.chapters[0].id, "c500");
-        assert_eq!(window.book.chapters[0].start_piece, "p972");
+        assert_eq!(window.start, 1000);
+        assert_eq!(window.book.pieces.len(), 500);
+        assert_eq!(window.book.chapters[0].id, "c1000");
+        assert_eq!(window.book.chapters[0].start_piece, "p1000");
         let saved = disk.capture(1100, &json!({"speed":400}))?;
         assert_eq!(disk.restore(Some(&saved))?.at, 1100);
         let mut changed = saved;

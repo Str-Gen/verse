@@ -91,10 +91,23 @@ void Support::fitImages(QObject *editor, double width, double height) {
             if (!fragment.charFormat().isImageFormat()) continue;
             auto format = fragment.charFormat().toImageFormat();
             auto image = qvariant_cast<QImage>(document->resource(QTextDocument::ImageResource, QUrl(format.name())));
-            if (image.isNull()) continue;
-            double scale = std::min({1.0, width / image.width(), height / image.height()});
-            double w = image.width() * scale, h = image.height() * scale;
-            if (qAbs(format.width() - w) < 0.01 && qAbs(format.height() - h) < 0.01) continue;
+            constexpr int intrinsicWidth = QTextFormat::UserProperty + 1;
+            constexpr int intrinsicHeight = QTextFormat::UserProperty + 2;
+            double naturalWidth = format.property(intrinsicWidth).toDouble();
+            double naturalHeight = format.property(intrinsicHeight).toDouble();
+            if (naturalWidth <= 0 || naturalHeight <= 0) {
+                if ((format.width() <= 0 || format.height() <= 0) &&
+                    format.name().startsWith(QStringLiteral("data:image/png;name=")) &&
+                    !images.contains(format.name())) continue;
+                naturalWidth = format.width() > 0 ? format.width() : image.width();
+                naturalHeight = format.height() > 0 ? format.height() : image.height();
+                if (naturalWidth <= 0 || naturalHeight <= 0) continue;
+                format.setProperty(intrinsicWidth, naturalWidth);
+                format.setProperty(intrinsicHeight, naturalHeight);
+            }
+            double scale = std::min({1.0, width / naturalWidth, height / naturalHeight});
+            double w = naturalWidth * scale, h = naturalHeight * scale;
+            if (qAbs(format.width() - w) < 0.01 && qAbs(format.height() - h) < 0.01 && fragment.charFormat().hasProperty(intrinsicWidth)) continue;
             format.setWidth(w);
             format.setHeight(h);
             updates.append({fragment.position(), format});
@@ -120,11 +133,12 @@ bool Support::click(QObject *object, double x, double y) {
     QCoreApplication::sendEvent(window, &release);
     return true;
 }
-void Support::pressSpace() {
+void Support::pressSpace() { pressKey(Qt::Key_Space); }
+void Support::pressKey(int key) {
     auto *window = QGuiApplication::focusWindow();
     if (!window) return;
-    QKeyEvent press(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier, " ");
-    QKeyEvent release(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier, " ");
+    QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+    QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
     QCoreApplication::sendEvent(window, &press);
     QCoreApplication::sendEvent(window, &release);
 }

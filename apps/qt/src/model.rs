@@ -50,6 +50,7 @@ pub struct Model {
     pub window_start: usize,
     pub window_generation: u64,
     positions: Vec<(usize, usize)>,
+    image_dimensions: BTreeMap<String, [u32; 2]>,
     chapter_positions: Vec<usize>,
     preserve_saved: bool,
     inspected_stop: Option<usize>,
@@ -97,10 +98,13 @@ impl Model {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref();
         let store = DiskBook::open(path).map_err(|e| e.to_string())?;
-        let mut window = store.load_window(0).map_err(|e| e.to_string())?;
+        let mut window = store.load_chapter(0).map_err(|e| e.to_string())?;
         window.book.resources = store.image_resources(0).map_err(|e| e.to_string())?;
-        let mut model =
-            Self::from_book(window.book, path.parent().unwrap_or_else(|| Path::new(".")))?;
+        let mut model = Self::from_book_with_dimensions(
+            window.book,
+            path.parent().unwrap_or_else(|| Path::new(".")),
+            window.image_dimensions,
+        )?;
         model.chapter_positions = store.chapter_starts().to_vec();
         model.window_start = window.start;
         model.store = Some(store);
@@ -116,7 +120,16 @@ impl Model {
         Self::from_book(book, directory)
     }
 
+    #[cfg(test)]
     fn from_book(book: Book, directory: &Path) -> Result<Self, String> {
+        Self::from_book_with_dimensions(book, directory, BTreeMap::new())
+    }
+
+    fn from_book_with_dimensions(
+        book: Book,
+        directory: &Path,
+        image_dimensions: BTreeMap<String, [u32; 2]>,
+    ) -> Result<Self, String> {
         if book.schema_version != 1 {
             return Err("Only book JSON schema version 1 is supported".into());
         }
@@ -124,7 +137,7 @@ impl Model {
             return Err("Book has no playback pieces".into());
         }
         validate(&book)?;
-        let (html, plain_text, positions) = render(&book, directory)?;
+        let (html, plain_text, positions) = render(&book, directory, &image_dimensions)?;
         let piece_indices: BTreeMap<_, _> = book
             .pieces
             .iter()
@@ -151,6 +164,7 @@ impl Model {
             window_start: 0,
             window_generation: 0,
             positions,
+            image_dimensions,
             preserve_saved: false,
             inspected_stop: None,
             recovery: None,
@@ -237,14 +251,16 @@ impl Model {
         if force
             || !(self.window_start..self.window_start + self.book.pieces.len()).contains(&global)
         {
-            let mut window = store.load_window(global).map_err(|e| e.to_string())?;
+            let mut window = store.load_chapter(global).map_err(|e| e.to_string())?;
             window.book.resources = store.image_resources(global).map_err(|e| e.to_string())?;
-            let (html, plain, positions) = render(&window.book, &self.directory)?;
+            let (html, plain, positions) =
+                render(&window.book, &self.directory, &window.image_dimensions)?;
             self.book = window.book;
             self.window_start = window.start;
             self.html = html;
             self.plain_text = plain;
             self.positions = positions;
+            self.image_dimensions = window.image_dimensions;
             self.window_generation += 1;
             self.inspected_stop = None;
         }
@@ -310,6 +326,16 @@ impl Model {
             },
         )
     }
+    pub fn adjacent_word_position(&self, direction: i32) -> Option<usize> {
+        let is_word = |&i: &usize| self.book.pieces[i].kind == "word";
+        let index = if direction < 0 {
+            (0..self.current).rfind(is_word)
+        } else {
+            (self.current + 1..self.book.pieces.len()).find(is_word)
+        };
+        index.map(|i| self.positions[i].0)
+    }
+
     pub fn current_utf16(&self) -> usize {
         self.positions[self.current].0
     }
@@ -502,7 +528,7 @@ impl Model {
             return Ok(());
         }
         self.book.resources = resources;
-        let (html, plain, positions) = render(&self.book, &self.directory)?;
+        let (html, plain, positions) = render(&self.book, &self.directory, &self.image_dimensions)?;
         self.html = html;
         self.plain_text = plain;
         self.positions = positions;
@@ -1052,7 +1078,11 @@ fn qt_plain_character(character: char) -> char {
 type Rendered = (String, String, Vec<(usize, usize)>);
 type NodePositions = BTreeMap<usize, (usize, usize)>;
 
-fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
+fn render(
+    book: &Book,
+    directory: &Path,
+    image_dimensions: &BTreeMap<String, [u32; 2]>,
+) -> Result<Rendered, String> {
     let mut html = String::from(
         "<html><head><style>p { line-height: 140%; } h1, h2, h3, h4, h5, h6 { font-size: large; margin-top: 20px; margin-bottom: 12px; }</style></head><body>",
     );
@@ -1108,7 +1138,12 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
                 } else {
                     local_image_uri(resource, directory)?
                 };
-                html.push_str(&format!("<img src=\"{}\" />", escape(&uri)));
+                let size = image_dimensions
+                    .get(resource)
+                    .map_or_else(String::new, |[width, height]| {
+                        format!(" width=\"{width}\" height=\"{height}\"")
+                    });
+                html.push_str(&format!("<img src=\"{}\"{size} />", escape(&uri)));
                 plain.push('\u{fffc}');
                 utf16 += 1;
             }
@@ -1148,7 +1183,9 @@ fn render(book: &Book, directory: &Path) -> Result<Rendered, String> {
             if run.strong {
                 html.push_str("<b>");
             }
-            html.push_str(&escape(&run.text));
+            html.push_str(
+                &escape(&run.text).replace(['\n', '\r', '\u{2028}', '\u{2029}'], "<br/>"),
+            );
             if run.strong {
                 html.push_str("</b>");
             }

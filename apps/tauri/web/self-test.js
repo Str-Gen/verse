@@ -30,14 +30,50 @@ export async function runTests(actualReader) {
     check('footer menu collapses auxiliary controls', $('settings').hidden && $('book-controls').hidden);
     const original = native ? await (await fetch('demo.json')).json() : JSON.parse(JSON.stringify(reader.snapshot.book));
     check('startup is stopped at a source-matching saved anchor', reader.snapshot.mode === 'reading' && restore(original, reader.startup.books[original.book_id]).at === reader.snapshot.at);
+    await reader.choose(0); reader.reflow();
     check('native or browser DOM renders normalized book', $('book').textContent.includes('observatory'));
-    check('long synthetic book has multiple conventional pages', reader.snapshot.pages > 1);
+
     check('UTF-16 offsets convert to Unicode scalar source offsets', utf16ToScalar('A🦉B', 3) === 2 && scalarToUtf16('A🦉B', 2) === 3);
+    const chapterStart = original.pieces.findIndex(p => p.id === original.chapters[0].start_piece);
+    await reader.choose(chapterStart); reader.reflow();
+    check('long chapter has multiple conventional pages', reader.snapshot.pages > 1);
+    const initialPageCount = reader.snapshot.pages;
+    const readingHeight = $('viewport').clientHeight;
+    $('notice').textContent = 'Synthetic status message'; await wait(30);
+    check('status messages do not change the reading viewport', $('viewport').clientHeight === readingHeight && reader.snapshot.pages === initialPageCount);
+    $('notice').textContent = '';
+
+    for (let i = 1; i < initialPageCount; ++i) {
+      await reader.turn(1);
+      check('one Right action advances to page ' + (i + 1), reader.snapshot.page === i);
+      reader.reflow();
+      check('reflow retains page ' + (i + 1), reader.snapshot.page === i);
+    }
+    for (let i = initialPageCount - 2; i >= 0; --i) {
+      await reader.turn(-1); reader.reflow();
+      check('one Left action restores page ' + (i + 1), reader.snapshot.page === i);
+    }
+    const firstWord = reader.snapshot.at;
+    document.body.dispatchEvent(new KeyboardEvent('keydown', {code:'ArrowDown', bubbles:true}));
+    check('Down highlights the next word on this page', reader.snapshot.at > firstWord && reader.snapshot.page === 0 && Boolean(document.querySelector('#book .selected')));
+    document.body.dispatchEvent(new KeyboardEvent('keydown', {code:'ArrowUp', bubbles:true}));
+    check('Up restores the previous word', reader.snapshot.at === firstWord);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', {code:'ArrowUp', bubbles:true}));
+    check('Up stops at the first word of the page', reader.snapshot.at === firstWord && reader.snapshot.page === 0);
+    for (let i = 0; i < reader.snapshot.book.pieces.length; ++i) {
+      const before = reader.snapshot.at;
+      document.body.dispatchEvent(new KeyboardEvent('keydown', {code:'ArrowDown', bubbles:true}));
+      if (reader.snapshot.at === before) break;
+    }
+    check('Down stops at the last word on the current page', reader.snapshot.page === 0 && reader.snapshot.at === Math.max(...[...reader.snapshot.pageForPiece].filter(([index, p]) => p === 0 && (original.pieces[index].kind ?? 'word') === 'word').map(([index]) => index)));
+
     const joined = original.pieces.findIndex(p => p.text === 'unbelievable');
-    check('inline formatting retains one lexical piece with multiple source spans', joined >= 0 && original.pieces[joined].sources.length === 3 && document.querySelectorAll(`[data-piece="${joined}"]`).length === 3);
-    const fragment = document.querySelector(`[data-piece="${joined}"] em`) ?? [...document.querySelectorAll(`[data-piece="${joined}"]`)].find(el => el.closest('em'));
+    await reader.choose(joined); reader.reflow();
+    const localJoined = joined - (reader.snapshot.windowInfo?.start ?? 0);
+    check('inline formatting retains one lexical piece with multiple source spans', joined >= 0 && original.pieces[joined].sources.length === 3 && document.querySelectorAll(`[data-piece="${localJoined}"]`).length === 3);
+    const fragment = document.querySelector(`[data-piece="${localJoined}"] em`) ?? [...document.querySelectorAll(`[data-piece="${localJoined}"]`)].find(el => el.closest('em'));
     check('normalized emphasis rendered', Boolean(fragment));
-    const target = document.querySelector(`[data-piece="${joined}"]`);
+    const target = document.querySelector(`[data-piece="${localJoined}"]`);
     const range = document.createRange(); range.setStart(target.firstChild, 1); range.setEnd(target.firstChild, 2);
     window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
     target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
@@ -137,9 +173,9 @@ export async function runTests(actualReader) {
     await reader.choose(second - 1); reader.play(); await reader.advance();
     check('logical chapter boundary pauses', $('boundary').open && reader.snapshot.at === second - 1);
     const count = reader.snapshot.state.books[original.book_id].history.length;
-    $('skip-feedback').click(); await wait(60); reader.play();
+    await $('skip-feedback').onclick(); reader.play();
     check('skip starts next chapter without saving feedback', reader.snapshot.at === second && reader.snapshot.state.books[original.book_id].history.length === count); reader.returnToText();
-    await reader.choose(second - 1); reader.play(); await reader.advance(); $('pace').value = 'fast'; $('pace').dispatchEvent(new Event('change')); $('accept-speed').checked = true; $('save-feedback').click(); await wait(60); reader.play();
+    await reader.choose(second - 1); reader.play(); await reader.advance(); $('pace').value = 'fast'; $('pace').dispatchEvent(new Event('change')); $('accept-speed').checked = true; await $('save-feedback').onclick(); reader.play();
     check('explicit feedback acceptance reduces speed by 25', reader.snapshot.speed === 400 && reader.snapshot.state.books[original.book_id].history.length === count + 1); reader.returnToText();
     const decoration = original.pieces.findIndex(p => p.kind === 'ornament'); await reader.choose(decoration - 1); reader.play(); await reader.advance();
     check('decorations are skipped', reader.snapshot.at === decoration + 1); reader.returnToText();
@@ -163,9 +199,9 @@ export async function runTests(actualReader) {
     check('missing native images retain an explicit placeholder', [...$('book').querySelectorAll('figcaption')].some(el => el.textContent.includes('Image unavailable')));
     const core = validateBook(await (await fetch('core-demo.json')).json());
     await reader.importBook(JSON.stringify(core));
-    check('Rust-core synthetic export opens through the JSON adapter', reader.snapshot.book.pieces.length === core.pieces.length && reader.snapshot.book.chapters.length === 3 && reader.snapshot.book.pieces.some(p => p.text === 'state-'));
+    check('Rust-core synthetic export opens through the JSON adapter', (reader.snapshot.windowInfo?.total ?? reader.snapshot.book.pieces.length) === core.pieces.length && (reader.snapshot.windowInfo?.chapters ?? reader.snapshot.book.chapters).length === 3);
     await wait(500);
-    check('core embedded raster resources render locally', [...$('book').querySelectorAll('img')].length === 5 && [...$('book').querySelectorAll('img[src]')].length > 0 && [...$('book').querySelectorAll('img[src]')].every(img => img.complete && img.naturalWidth > 0 && (native ? img.src.startsWith('blob:') : img.src.startsWith('data:image/'))));
+    check('core embedded raster resources render locally', [...$('book').querySelectorAll('img')].length === reader.snapshot.book.pieces.filter(p => p.kind === 'image').length && [...$('book').querySelectorAll('img[src]')].length > 0 && [...$('book').querySelectorAll('img[src]')].every(img => img.complete && img.naturalWidth > 0 && (native ? img.src.startsWith('blob:') : img.src.startsWith('data:image/'))));
     check('loaded images do not duplicate alt text as captions', !$('book').querySelector('figcaption'));
     const imageSource = JSON.stringify(position(core, reader.snapshot.at));
     for (const limit of ['', '30px']) {
@@ -178,7 +214,15 @@ export async function runTests(actualReader) {
     $('viewport').style.maxWidth = ''; reader.reflow();
     check('image reflow preserves source anchor', JSON.stringify(position(core, reader.snapshot.at)) === imageSource);
 
+    for (let index = 0; index < core.pieces.length; ++index) {
+      if (core.pieces[index].kind !== 'image') continue;
+      await reader.choose(index); reader.reflow(); await wait(200);
+      const localIndex = index - (reader.snapshot.windowInfo?.start ?? 0);
+      const img = document.querySelector(`[data-piece="${localIndex}"] img`);
+      check('chapter image loads at its source ' + index, img?.complete && img.naturalWidth > 0);
+    }
     const coreJoined = core.pieces.findIndex(p => p.text === 'naïveté');
+    await reader.choose(coreJoined); reader.reflow();
     check('core multi-run source piece maps to three conventional fragments', document.querySelectorAll(`[data-piece="${coreJoined}"]`).length === 3);
     const marker = core.pieces.findIndex(p => p.kind === 'note');
     const link = $('book').querySelector('.note-link'); link.click();
@@ -211,9 +255,26 @@ export async function runTests(actualReader) {
     check('Unicode fixture source return remains at last displayed word', reader.snapshot.at === astral + 1 && reader.snapshot.page === reader.snapshot.pageForPiece.get(astral + 1));
     if (native) {
       await reader.loadBook(original);
+      await reader.choose(0); reader.reflow();
+      const visited = [];
+      const visiblePieces = () => [...reader.snapshot.pageForPiece].filter(([, p]) => p === reader.snapshot.page).map(([i]) => i);
+      for (let i = 0; i < 8 && !$('next').disabled; ++i) {
+        const visible = visiblePieces();
+        visited.push(visible);
+        await reader.turn(1);
+        check('page turns never repeat text across section boundaries ' + i, Math.min(...visiblePieces()) > Math.max(...visible));
+      }
+      check('page traversal crosses chapters', visited.length >= 3 && reader.snapshot.windowInfo.start > 0);
+      for (let i = visited.length - 1; i >= 0; --i) {
+        await reader.turn(-1);
+        check('backward turns restore identical pages across sections ' + i, JSON.stringify(visiblePieces()) === JSON.stringify(visited[i]));
+      }
       for (const destination of [0, 700, 1100, 0, 1000, 100]) {
         await reader.choose(destination); reader.reflow();
-        check(`disk window seeks exactly to ${destination}`, reader.snapshot.at === destination && reader.snapshot.book.pieces.length <= 512 && document.querySelectorAll('#book [data-piece]').length < 1600);
+        const starts = original.chapters.map(c => original.pieces.findIndex(p => p.id === c.start_piece));
+        const start = starts.filter(i => i <= destination).at(-1) ?? 0;
+        const end = starts.find(i => i > destination) ?? original.pieces.length;
+        check(`chapter seek preserves all pages at ${destination}`, reader.snapshot.at === destination && reader.snapshot.windowInfo.start === start && reader.snapshot.book.pieces.length === end - start);
       }
       await reader.choose(0); await reader.loadBook(original);
       await reader.choose(511); reader.play();
