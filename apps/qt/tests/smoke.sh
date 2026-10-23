@@ -101,3 +101,6 @@ pathlib.Path(sys.argv[1]).write_text(json.dumps(book))
 PYCHAPTER
 READER_STATE_DIR="$state/chapter-pagination" READER_SMOKE=chapter-pagination "$reader_binary" --book-json "$state/long-chapter.json" 2>&1 | tee evidence/runtime/chapter-pagination.log
 rg -q "CHAPTER_PAGINATION COMPLETE" evidence/runtime/chapter-pagination.log
+
+READER_STATE_DIR="$state/chapter-transition" READER_SMOKE=chapter-transition READER_PERFORMANCE_CHAPTER=0 "$reader_binary" --book-json "$PWD/fixtures/demo.json" 2>&1 | tee evidence/runtime/chapter-transition.log
+rg -q "CHAPTER_TRANSITION COMPLETE" evidence/runtime/chapter-transition.log

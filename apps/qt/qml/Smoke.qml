@@ -4,6 +4,28 @@ QtObject {
     property var readerObject
     property var textEditor
     property var pageViewport
+    property double performanceStarted: 0
+    property var performanceSamples: []
+    property var performanceWork: []
+    property double performanceTurnStarted: 0
+    property bool performanceWaiting: false
+    property Connections performanceFrames: Connections {
+        target: support
+        function onFramePresented() {
+            if (smokeMode === "page-performance" && performanceWaiting) {
+                performanceSamples.push(Date.now() - performanceTurnStarted)
+                performanceWaiting = false
+                Qt.callLater(run)
+            }
+        }
+    }
+    property Connections chapterDocuments: Connections {
+        target: readerObject
+        function onHtmlChanged() {
+            if (smokeMode === "chapter-transition" && phase === 2)
+                check(host.pageY === 0, "new chapter is installed at the top of the viewport")
+        }
+    }
     property int phase: 0
     property int anchor: 0
     property string anchorWord: ""
@@ -70,6 +92,80 @@ QtObject {
                 console.log("LOADING COMPLETE")
                 support.finish(0)
             }
+            return
+        }
+        if (smokeMode === "chapter-transition") {
+            if (phase === 0) {
+                check(performanceChapter >= 0 && performanceChapter + 1 < JSON.parse(reader.chapters).length, "requested chapter and its successor are available")
+                const started = Date.now()
+                host.jumpChapter(performanceChapter)
+                console.log("CHAPTER_JUMP_MS", Date.now() - started)
+            } else if (phase === 1) {
+                if (host.page < host.pages.length - 1) {
+                    host.turn(1)
+                    later.interval = 16
+                    later.start()
+                    return
+                }
+                later.interval = 300
+            } else if (phase === 2) {
+                host.turn(1)
+            } else if (phase === 3) {
+                check(host.page === 0, "chapter transition selects page one")
+                anchor = support.visibleInk(editor.parent)
+                if (screenshotPath !== "") support.capture(screenshotPath + ".first.png")
+                host.turn(1)
+            } else if (phase === 4) {
+                host.turn(-1)
+            } else {
+                const returned = support.visibleInk(editor.parent)
+                console.log("CHAPTER_FIRST_PAGE_INK", anchor, returned)
+                if (screenshotPath !== "") support.capture(screenshotPath + ".returned.png")
+                check(anchor > 100 && anchor >= returned * 0.8, "first page is painted before navigating away and back")
+                console.log("CHAPTER_TRANSITION COMPLETE")
+                support.finish(0)
+                return
+            }
+            phase++
+            later.start()
+            return
+        }
+        if (smokeMode === "page-performance") {
+            if (phase === 0) {
+                check(performanceChapter >= 0 && performanceChapter < JSON.parse(reader.chapters).length, "requested performance chapter is available")
+                host.jumpChapter(performanceChapter)
+                phase = 1
+                later.start()
+                return
+            }
+            if (phase === 1) {
+                check(host.pages.length > 2, "performance chapter spans multiple pages")
+                anchor = host.pages.length
+                initialHtml = reader.html
+                console.log("PAGE_PERFORMANCE START", anchor)
+                performanceStarted = Date.now()
+                phase = 1
+            } else if (phase > 2 * (anchor - 1)) {
+                const elapsed = Date.now() - performanceStarted
+                const work = performanceWork.slice().sort((a, b) => a - b)
+                console.log("PAGE_WORK p95", work[Math.floor(work.length * 0.95)], "max", work[work.length - 1])
+                const samples = performanceSamples.slice().sort((a, b) => a - b)
+                console.log("PAGE_PERFORMANCE", anchor, "pages", host.pages.length, "final pages", host.page, "final page", elapsed, "ms", samples.length, "turns; p95", samples[Math.floor(samples.length * 0.95)], "max", samples[samples.length - 1])
+                check(host.page === 0 && host.pages.length === anchor, "page round trips preserve pagination")
+                check(samples[Math.floor(samples.length * 0.95)] < 100, "95 percent of rendered turns take less than 100 ms")
+                support.finish(0)
+                return
+            }
+            performanceTurnStarted = Date.now()
+            const expected = phase < anchor ? phase : 2 * (anchor - 1) - phase
+            host.turn(phase < anchor ? 1 : -1)
+            if (reader.html !== initialHtml) check(false, "page turns must retain chapter text")
+            if (host.page !== expected || host.pages.length !== anchor)
+                check(false, "page turn " + phase + " expected " + expected + " got " + host.page + " count " + host.pages.length)
+            performanceWork.push(Date.now() - performanceTurnStarted)
+            phase++
+            performanceWaiting = true
+            host.update()
             return
         }
         if (smokeMode === "chapter-pagination") {

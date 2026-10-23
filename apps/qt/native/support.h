@@ -15,14 +15,16 @@ public:
     Q_INVOKABLE void installImages(QObject *editor);
     Q_INVOKABLE QString imageHtml(const QString &html, const QString &sources);
     Q_SIGNAL void imagesReady();
+    Q_SIGNAL void framePresented();
     Q_INVOKABLE bool memoryReport(bool finished, int work);
     Q_INVOKABLE void finish(int code);
     Q_INVOKABLE bool click(QObject *item, double x, double y);
     Q_INVOKABLE void pressSpace();
     Q_INVOKABLE void pressKey(int key);
+    Q_INVOKABLE int visibleInk(QObject *item);
     Q_INVOKABLE bool capture(const QString &path);
     Q_INVOKABLE QString localPath(const QUrl &url) { return url.toLocalFile(); }
-    Q_INVOKABLE void fitImages(QObject *editor, double width, double height);
+    Q_INVOKABLE bool fitImages(QObject *editor, double width, double height);
     Q_INVOKABLE QVariantMap inspectDocument(QObject *editor);
 private:
     QHash<QString, QImage> images;
@@ -32,5 +34,6 @@ private:
     bool imageLoading = false;
     QString loadingImage;
     QPointer<QTextDocument> imageDocument;
+    void updateImage(const QString &key, const QImage &image);
     void loadNextImage();
 };

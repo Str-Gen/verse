@@ -32,6 +32,7 @@ ApplicationWindow {
     font.pixelSize: 12
     FontMetrics { id: readingMetrics; font.family: "IBM Plex Mono"; font.pixelSize: window.textSize * theme.textScale }
     property var pages: [{ y: 0, position: 0 }]
+    property string paginatedHtml: ""
     property int page: 0
     property bool ready: false
     property bool bookReady: false
@@ -73,7 +74,7 @@ ApplicationWindow {
     function preserveSelection() {
         if (ready && !playback && editor.selectedText.length > 0) reader.select(editor.selectionStart)
     }
-    function paginate() {
+    function paginate(preservePage = false) {
         if (!ready || viewport.height < 100 || editor.contentHeight <= 0) return
         support.fitImages(editor, Math.max(1, editor.width - 8), Math.max(1, viewport.height - editor.font.pixelSize * 3))
         let result = [{y: 0, position: 0}]
@@ -89,6 +90,10 @@ ApplicationWindow {
             result.push({y: next, position: position})
             y = next
         }
+        const unchanged = paginatedHtml === reader.html && result.length === pages.length &&
+            result.every((entry, index) => entry.y === pages[index].y && entry.position === pages[index].position)
+        paginatedHtml = reader.html
+        if (preservePage && unchanged) return
         pages = result
         locate()
     }
@@ -105,7 +110,11 @@ ApplicationWindow {
         if (playback) return
         let next = Math.max(0, Math.min(pages.length - 1, page + delta))
         if (next === page) {
+            const previousPage = page
+            const previousHtml = reader.html
+            page = 0
             reader.turn_window(delta)
+            if (reader.html === previousHtml) page = previousPage
             paginate()
             return
         }
@@ -158,6 +167,7 @@ ApplicationWindow {
         if (controlsVisible && reader.playing) reader.pause()
     }
     function jumpChapter(index) {
+        page = 0
         reader.jump_chapter(index)
         playback = false
         paginate()
@@ -171,7 +181,10 @@ ApplicationWindow {
     }
     Connections {
         target: support
-        function onImagesReady() { reflow.restart() }
+        function onImagesReady() {
+            if (support.fitImages(editor, Math.max(1, editor.width - 8), Math.max(1, viewport.height - editor.font.pixelSize * 3)))
+                reflow.restart()
+        }
     }
     Connections {
         target: reader
@@ -238,7 +251,7 @@ ApplicationWindow {
         interval: 80
         onTriggered: {
             if (reader.loading || !ready) return
-            window.paginate()
+            window.paginate(true)
             bookReady = true
             window.update()
             if (smokeMode !== "" && !smokeStarted) {
@@ -267,6 +280,7 @@ ApplicationWindow {
         title: "Open EPUB"
         nameFilters: ["EPUB books (*.epub *.EPUB)"]
         onAccepted: {
+            page = 0
             reader.open_book(support.localPath(selectedFile))
             playback = false
             reflow.restart()

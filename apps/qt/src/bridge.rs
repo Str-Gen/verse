@@ -131,6 +131,7 @@ pub struct ReaderRust {
     model: Option<Model>,
     book_lock: Option<reader_core::persistence::BookLock>,
     window_generation: u64,
+    image_generation: u64,
     window_start: usize,
     state_path: PathBuf,
 }
@@ -367,6 +368,7 @@ impl ffi::Reader {
                 rust.exposures.clear();
                 rust.window_start = 0;
                 rust.window_generation = 0;
+                rust.image_generation = 0;
                 rust.vocabulary = None;
                 if let Some(lock) = lock {
                     rust.book_lock = Some(lock);
@@ -421,7 +423,6 @@ impl ffi::Reader {
             let generation = model.window_generation;
             let window_start = model.window_start;
             let window_end = window_start + model.book().pieces.len();
-            let images = QString::from(model.images_json());
             let html = QString::from(&model.html);
             let plain = QString::from(&model.plain_text);
             let mut rust = self.as_mut().rust_mut();
@@ -449,9 +450,17 @@ impl ffi::Reader {
                     model.status = error;
                 }
             }
-            self.as_mut().set_images(images);
             self.as_mut().set_html(html);
             self.as_mut().set_plain_text(plain);
+        }
+
+        if let Some(model) = &self.rust().model
+            && model.image_generation != self.rust().image_generation
+        {
+            let generation = model.image_generation;
+            let images = QString::from(model.images_json());
+            self.as_mut().rust_mut().image_generation = generation;
+            self.as_mut().set_images(images);
         }
 
         if let Some(model) = &self.rust().model {

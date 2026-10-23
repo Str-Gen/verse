@@ -27,11 +27,16 @@ int run() {
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("support", &support);
+    engine.rootContext()->setContextProperty("performanceChapter", qEnvironmentVariableIntValue("READER_PERFORMANCE_CHAPTER"));
     engine.rootContext()->setContextProperty("smokeMode", qEnvironmentVariable("READER_SMOKE"));
     engine.rootContext()->setContextProperty("screenshotPath", qEnvironmentVariable("READER_SCREENSHOT"));
     QObject::connect(&engine, &QQmlApplicationEngine::quit, &app, &QCoreApplication::quit);
     engine.load(QUrl("qrc:/qt/qml/Overnight/Reader/qml/Main.qml"));
     if (engine.rootObjects().isEmpty()) return 2;
+    if (qEnvironmentVariable("READER_SMOKE") == "page-performance") {
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        if (window) QObject::connect(window, &QQuickWindow::frameSwapped, &support, &Support::framePresented, Qt::QueuedConnection);
+    }
     if (qEnvironmentVariableIsSet("READER_MEASURE")) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         if (window) {
@@ -47,6 +52,6 @@ int run() {
         }
     }
     if (qEnvironmentVariableIsSet("READER_SMOKE"))
-        QTimer::singleShot(15000, &app, [&app]() { app.exit(90); });
+        QTimer::singleShot(qEnvironmentVariable("READER_SMOKE") == "page-performance" ? 120000 : 15000, &app, [&app]() { app.exit(90); });
     return app.exec();
 }

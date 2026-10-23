@@ -49,6 +49,8 @@ pub struct Model {
     directory: std::path::PathBuf,
     pub window_start: usize,
     pub window_generation: u64,
+    pub image_generation: u64,
+    image_position: usize,
     positions: Vec<(usize, usize)>,
     image_dimensions: BTreeMap<String, [u32; 2]>,
     chapter_positions: Vec<usize>,
@@ -172,6 +174,8 @@ impl Model {
             directory: directory.to_owned(),
             window_start: 0,
             window_generation: 0,
+            image_generation: 0,
+            image_position: 0,
             positions,
             image_dimensions,
             preserve_saved: false,
@@ -186,7 +190,7 @@ impl Model {
     }
 
     pub fn images_json(&self) -> String {
-        let mut sources: Vec<String> = self
+        let mut sources: Vec<Value> = self
             .book
             .resources
             .iter()
@@ -196,6 +200,7 @@ impl Model {
                 } else {
                     Some(resource.data_url.clone())
                 }
+                .map(|source| json!({"key": image_key(&self.book, &resource.id), "source": source}))
             })
             .collect();
         let markers: Vec<_> = self
@@ -221,10 +226,12 @@ impl Model {
                 .and_then(|block| block.resource.as_deref())
                 && !self.book.resources.iter().any(|entry| entry.id == resource)
                 && let Ok(uri) = local_image_uri(resource, &self.directory)
-                && !sources.contains(&uri)
                 && sources.len() < 5
             {
-                sources.push(uri);
+                let key = image_key(&self.book, resource);
+                if !sources.iter().any(|source| source["key"] == key) {
+                    sources.push(json!({"key": key, "source": uri}));
+                }
             }
         }
         json!(sources).to_string()
@@ -271,6 +278,8 @@ impl Model {
             self.positions = positions;
             self.image_dimensions = window.image_dimensions;
             self.window_generation += 1;
+            self.image_generation += 1;
+            self.image_position = global;
             self.inspected_stop = None;
         }
         self.current = global - self.window_start;
@@ -525,9 +534,21 @@ impl Model {
         let Some(store) = &self.store else {
             return Ok(());
         };
+        let previous = self.image_position - self.window_start;
+        if previous == self.current {
+            return Ok(());
+        }
+        if !self.book.pieces[previous.min(self.current)..=previous.max(self.current)]
+            .iter()
+            .any(|piece| piece.kind == "image")
+        {
+            self.image_position = self.global_position();
+            return Ok(());
+        }
         let resources = store
             .image_resources(self.global_position())
             .map_err(|e| e.to_string())?;
+        self.image_position = self.global_position();
         if (!resources.is_empty() || !self.book.pieces.iter().any(|piece| piece.kind == "image"))
             && resources
                 .iter()
@@ -537,11 +558,7 @@ impl Model {
             return Ok(());
         }
         self.book.resources = resources;
-        let (html, plain, positions) = render(&self.book, &self.directory, &self.image_dimensions)?;
-        self.html = html;
-        self.plain_text = plain;
-        self.positions = positions;
-        self.window_generation += 1;
+        self.image_generation += 1;
         Ok(())
     }
 
@@ -1087,6 +1104,17 @@ fn qt_plain_character(character: char) -> char {
 type Rendered = (String, String, Vec<(usize, usize)>);
 type NodePositions = BTreeMap<usize, (usize, usize)>;
 
+fn image_key(book: &Book, resource: &str) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(
+            json!([book.book_id, book.revision, resource])
+                .to_string()
+                .as_bytes()
+        )
+    )
+}
+
 fn render(
     book: &Book,
     directory: &Path,
@@ -1124,7 +1152,7 @@ fn render(
         }
         if block.kind == "image" {
             if let Some(resource) = &block.resource {
-                let uri = if let Some(embedded) = book
+                if let Some(embedded) = book
                     .resources
                     .iter()
                     .find(|r| &r.id == resource && !r.data_url.is_empty())
@@ -1140,13 +1168,10 @@ fn render(
                     {
                         return Err("Unsupported embedded image format".into());
                     }
-                    format!(
-                        "reader-image:{:x}",
-                        Sha256::digest(embedded.data_url.as_bytes())
-                    )
                 } else {
-                    local_image_uri(resource, directory)?
-                };
+                    local_image_uri(resource, directory)?;
+                }
+                let uri = format!("reader-image:{}", image_key(book, resource));
                 let size = image_dimensions
                     .get(resource)
                     .map_or_else(String::new, |[width, height]| {
@@ -1309,6 +1334,47 @@ mod tests {
         assert!(!model.plain_text.is_empty());
         assert!(Model::open(root.join("missing.epub"), &imports).is_err());
         fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn image_navigation_keeps_chapter_text_and_positions() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("images.json");
+        let blocks: Vec<_> = (0..9).map(|i| json!({"id":format!("b{i}"),"kind":"image","resource":format!("image{i}"),"runs":[]})).collect();
+        let pieces: Vec<_> = (0..9).map(|i| json!({"id":format!("p{i}"),"block_id":format!("b{i}"),"kind":"image","text":"Image","sources":[]})).collect();
+        let resources: Vec<_> = (0..9).map(|i| json!({"id":format!("image{i}"),"media_type":"image/png","data_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg=="})).collect();
+        fs::write(
+            &path,
+            serde_json::to_vec(
+                &json!({"schema_version":1,"book_id":"image-navigation","revision":"v1","title":"Images","documents":[{"id":"d","blocks":blocks}],"pieces":pieces,"chapters":[],"notes":[],"resources":resources}),
+            )?,
+        )?;
+        let mut model = Model::load(path)?;
+        let html = model.html.clone();
+        let plain = model.plain_text.clone();
+        let positions = model.positions.clone();
+        let generation = model.window_generation;
+        for at in [4, 8, 0, 4] {
+            model.select_utf16(positions[at].0);
+            assert_eq!(model.current, at);
+            assert_eq!(
+                model.html, html,
+                "image navigation must not replace chapter text"
+            );
+            assert_eq!(model.plain_text, plain);
+            assert_eq!(model.positions, positions);
+            assert_eq!(model.window_generation, generation);
+            assert!(model.book.resources.len() <= 5);
+            assert!(
+                model
+                    .book
+                    .resources
+                    .iter()
+                    .any(|r| r.id == format!("image{at}"))
+            );
+        }
         Ok(())
     }
 

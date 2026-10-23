@@ -48,6 +48,25 @@ bool Support::capture(const QString &path) {
     }
     return false;
 }
+int Support::visibleInk(QObject *object) {
+    auto *item = qobject_cast<QQuickItem *>(object);
+    if (!item || !item->window()) return 0;
+    auto *window = item->window();
+    const auto frame = window->grabWindow();
+    const auto scale = frame.devicePixelRatio();
+    const auto bounds = item->mapRectToScene(item->boundingRect());
+    const auto rect = QRectF(bounds.topLeft() * scale, bounds.size() * scale).toAlignedRect().intersected(frame.rect());
+    const auto background = window->color();
+    int ink = 0;
+    for (int y = rect.top(); y <= rect.bottom(); ++y) {
+        for (int x = rect.left(); x <= rect.right(); ++x) {
+            const auto color = frame.pixelColor(x, y);
+            if (qAbs(color.red() - background.red()) + qAbs(color.green() - background.green()) + qAbs(color.blue() - background.blue()) > 60) ++ink;
+        }
+    }
+    return ink;
+}
+
 QVariantMap Support::inspectDocument(QObject *editor) {
     auto *quick = qvariant_cast<QQuickTextDocument *>(editor->property("textDocument"));
     if (!quick || !quick->textDocument()) return {};
@@ -80,9 +99,9 @@ QVariantMap Support::inspectDocument(QObject *editor) {
             {"imageSizes", imageSizes}, {"images", images}, {"loadedImages", loadedImages}, {"headings", headings}};
 }
 
-void Support::fitImages(QObject *editor, double width, double height) {
+bool Support::fitImages(QObject *editor, double width, double height) {
     auto *quick = qvariant_cast<QQuickTextDocument *>(editor->property("textDocument"));
-    if (!quick || !quick->textDocument() || width <= 0 || height <= 0) return;
+    if (!quick || !quick->textDocument() || width <= 0 || height <= 0) return false;
     auto *document = quick->textDocument();
     QList<QPair<int, QTextImageFormat>> updates;
     for (auto block = document->begin(); block.isValid(); block = block.next()) {
@@ -119,6 +138,7 @@ void Support::fitImages(QObject *editor, double width, double height) {
         cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
         cursor.setCharFormat(update.second);
     }
+    return !updates.isEmpty();
 }
 
 bool Support::click(QObject *object, double x, double y) {
@@ -156,11 +176,19 @@ void Support::installImages(QObject *editor) {
         placeholder.fill(Qt::transparent);
         return placeholder;
     });
-    connect(this, &Support::imagesReady, document, [this, document]() {
-        for (auto it = images.cbegin(); it != images.cend(); ++it)
-            document->addResource(QTextDocument::ImageResource, QUrl(it.key()), it.value());
-        document->markContentsDirty(0, document->characterCount());
-    });
+}
+
+void Support::updateImage(const QString &key, const QImage &image) {
+    if (!imageDocument) return;
+    imageDocument->addResource(QTextDocument::ImageResource, QUrl(key), image);
+    for (auto block = imageDocument->begin(); block.isValid(); block = block.next()) {
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const auto fragment = it.fragment();
+            const auto format = fragment.charFormat();
+            if (format.isImageFormat() && format.toImageFormat().name() == key)
+                imageDocument->markContentsDirty(fragment.position(), fragment.length());
+        }
+    }
 }
 
 QString Support::imageHtml(const QString &html, const QString &resourceJson) {
@@ -172,9 +200,9 @@ QString Support::imageHtml(const QString &html, const QString &resourceJson) {
     QList<QPair<QString, QString>> sources;
     const auto resources = QJsonDocument::fromJson(resourceJson.toUtf8()).array();
     for (const auto &resource : resources) {
-        const auto source = resource.toString();
-        const auto key = imageKey(QString::fromLatin1(
-            QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex()));
+        const auto entry = resource.toObject();
+        const auto source = entry.value("source").toString();
+        const auto key = imageKey(entry.value("key").toString());
         if (next.size() == 5) break;
         next.insert(key);
         if (!images.contains(key) && loadingImage != key) sources.append({key, source});
@@ -195,15 +223,15 @@ QString Support::imageHtml(const QString &html, const QString &resourceJson) {
     wanted = next;
     for (auto it = images.begin(); it != images.end();) {
         if (!wanted.contains(it.key())) {
-            if (imageDocument) imageDocument->addResource(QTextDocument::ImageResource, QUrl(it.key()), QImage());
+            const auto key = it.key();
             it = images.erase(it);
+            updateImage(key, QImage());
         }
         else ++it;
     }
     pendingImages.clear();
     for (const auto &source : sources) pendingImages.insert(source.first, source.second);
     loadNextImage();
-    QMetaObject::invokeMethod(this, [this]() { emit imagesReady(); }, Qt::QueuedConnection);
     return output;
 }
 
@@ -219,6 +247,7 @@ void Support::loadNextImage() {
         connect(watcher, &QFutureWatcher<QImage>::finished, this, [this, watcher, key]() {
             if (wanted.contains(key)) {
                 images.insert(key, watcher->result());
+                updateImage(key, watcher->result());
                 emit imagesReady();
             }
             watcher->deleteLater();
