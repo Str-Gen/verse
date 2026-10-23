@@ -24,7 +24,7 @@ ApplicationWindow {
     palette.highlightedText: theme.selectionForeground
     property bool playback: false
     property int textSize: 20
-    property bool controlsVisible: false
+    property bool controlsVisible: true
     property alias controlsButton: controlsButton
     property alias chaptersView: chapterList
     property alias feedbackVisible: feedbackDialog.visible
@@ -282,6 +282,7 @@ ApplicationWindow {
         onAccepted: {
             page = 0
             reader.open_book(support.localPath(selectedFile))
+            controlsVisible = true
             playback = false
             reflow.restart()
         }

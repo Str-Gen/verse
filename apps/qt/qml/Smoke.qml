@@ -19,6 +19,7 @@ QtObject {
             }
         }
     }
+    property bool started: false
     property Connections chapterDocuments: Connections {
         target: readerObject
         function onHtmlChanged() {
@@ -50,6 +51,15 @@ QtObject {
         let reader = readerObject
         let editor = textEditor
         if (reader.loading) { later.start(); return }
+        if (!started) {
+            started = true
+            check(host.controlsVisible && host.chaptersView.visible, "book opens with navigation controls and chapter sidebar visible")
+            if (smokeMode === "loading-fallback")
+                check(reader.status.indexOf("Cannot reopen") >= 0, "asynchronous startup failure opens the demo with a warning: " + reader.status)
+            host.controlsVisible = false
+            later.start()
+            return
+        }
         if (smokeMode === "epub") {
             check(reader.title.length > 0 && reader.html.length > 0, "EPUB opens in native reader")
             check(JSON.parse(reader.chapters).length > 0, "EPUB contents available")
@@ -64,8 +74,6 @@ QtObject {
         }
         if (smokeMode === "loading" || smokeMode === "loading-fallback") {
             if (phase === 0) {
-                if (smokeMode === "loading-fallback")
-                    check(reader.status.indexOf("Cannot reopen") >= 0, "asynchronous startup failure opens the demo with a warning: " + reader.status)
                 initialHtml = reader.html
                 anchor = reader.position
                 reader.open_book("fixtures/demo.json")
