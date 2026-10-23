@@ -557,15 +557,21 @@ impl DiskBook {
                 remaining -= count;
             }
         }
-        let ids: BTreeSet<_> = book.pieces.iter().map(|p| p.block_id.clone()).collect();
+        let mut pieces_by_block: BTreeMap<&str, Vec<&Piece>> = BTreeMap::new();
+        let mut block_order = BTreeMap::new();
+        for (index, piece) in book.pieces.iter().enumerate() {
+            pieces_by_block
+                .entry(&piece.block_id)
+                .or_default()
+                .push(piece);
+            block_order.entry(piece.block_id.as_str()).or_insert(index);
+        }
         let mut documents: BTreeMap<String, Vec<Block>> = BTreeMap::new();
         let mut context_bytes = 0u64;
         let mut boundary_blocks = None;
         let mut image_dimensions = BTreeMap::new();
-        for id in ids {
-            let Some(mut block) = self
-                .records
-                .get::<Block>("blocks", &id, MAX_CONTEXT_BYTES)?
+        for (&id, pieces) in &pieces_by_block {
+            let Some(mut block) = self.records.get::<Block>("blocks", id, MAX_CONTEXT_BYTES)?
             else {
                 continue;
             };
@@ -575,7 +581,6 @@ impl DiskBook {
                 image_dimensions.insert(resource.clone(), dimensions);
             }
             let original = std::mem::take(&mut block.runs);
-            let pieces: Vec<_> = book.pieces.iter().filter(|p| p.block_id == id).collect();
             let (previous, next) = match &boundary_blocks {
                 Some(blocks) => blocks,
                 None => boundary_blocks.insert((
@@ -591,22 +596,26 @@ impl DiskBook {
                     },
                 )),
             };
-            let clipped_start = previous.as_ref() == Some(&id);
-            let clipped_end = next.as_ref() == Some(&id);
-            let visible: Vec<_> = original
-                .iter()
-                .enumerate()
-                .filter_map(|(i, run)| {
-                    run.sources
-                        .iter()
-                        .any(|r| {
-                            pieces
-                                .iter()
-                                .any(|p| p.sources.iter().any(|s| overlaps(r, s)))
-                        })
-                        .then_some(i)
-                })
-                .collect();
+            let clipped_start = previous.as_deref() == Some(id);
+            let clipped_end = next.as_deref() == Some(id);
+            let visible: Vec<_> = if clipped_start || clipped_end {
+                original
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, run)| {
+                        run.sources
+                            .iter()
+                            .any(|r| {
+                                pieces
+                                    .iter()
+                                    .any(|p| p.sources.iter().any(|s| overlaps(r, s)))
+                            })
+                            .then_some(i)
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let first = if clipped_start {
                 visible.first().copied()
             } else {
@@ -680,12 +689,12 @@ impl DiskBook {
         for document in &mut book.documents {
             document
                 .blocks
-                .sort_by_key(|b| book.pieces.iter().position(|p| p.block_id == b.id));
+                .sort_by_key(|b| block_order.get(b.id.as_str()).copied());
         }
         book.documents.sort_by_key(|d| {
             d.blocks
                 .first()
-                .and_then(|b| book.pieces.iter().position(|p| p.block_id == b.id))
+                .and_then(|b| block_order.get(b.id.as_str()).copied())
         });
         book.chapters.clear();
         for (i, chapter) in self.metadata.chapters.iter().enumerate() {
